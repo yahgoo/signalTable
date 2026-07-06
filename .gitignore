@@ -1,0 +1,20 @@
+# Secrets and local env
+signaltable.env
+*.env
+!signaltable/env-template.env
+
+# Credentials (never commit)
+signaltable-*.json
+*credentials*.json
+service-account.json
+gcal-credentials.json
+
+# Large local test datasets
+dataset_*.json
+
+# Misc local artifacts
+token_usage_*.csv
+.DS_Store
+__pycache__/
+*.pyc
+.hermes_history

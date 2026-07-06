@@ -1,0 +1,43 @@
+# SignalTable profile config overlay
+# This is applied ON TOP of the cloned base config.
+# Deploy via: hermes -p signaltable config set ...
+# Or merge these keys into ~/.hermes/profiles/signaltable/config.yaml
+
+# MCP servers for SignalTable
+mcp_servers:
+  lobstermail:
+    command: "npx"
+    args: ["-y", "@lobsterkit/lobstermail-mcp@latest"]
+    # API key is auto-provisioned on first run and stored in ~/.lobstermail/token
+    # To override, set LM_API_KEY in ~/.hermes/profiles/signaltable/.env
+
+# Browser: Steel cloud provider
+# Set STEEL_API_KEY in .env, then Steel is selected automatically.
+browser:
+  cloud_provider: steel
+  # auto_local_for_private_urls: true  (default - keeps local URLs on local browser)
+
+# Cron approval policy: deny (cron jobs should not self-schedule more cron jobs)
+approvals:
+  cron_mode: deny
+  mode: manual
+
+# Gateway: install signaltable-approval plugin to ~/.hermes/plugins/ and enable it.
+#   hermes plugins enable signaltable-approval
+# Restart gateway after install.
+
+# Terminal working directory for this profile
+terminal:
+  cwd: /home/ubuntu/.hermes/profiles/signaltable
+
+# Agent settings tuned for long event-discovery runs
+agent:
+  max_turns: 90
+  gateway_timeout: 1800
+  restart_drain_timeout: 180
+
+# Daily log rotation
+logging:
+  level: INFO
+  max_size_mb: 10
+  backup_count: 5
