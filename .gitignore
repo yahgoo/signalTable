@@ -18,3 +18,16 @@ token_usage_*.csv
 __pycache__/
 *.pyc
 .hermes_history
+
+# Deploy bundles and runtime logs (never commit)
+signaltable-deploy.tar.gz
+**/logs/
+*.log
+
+# Local workspace noise (repo root)
+*.pdf
+*.xlsx
+*.csv
+!signaltable/docs/comparison.csv
+step1.md
+hermes_tech_stack*.png

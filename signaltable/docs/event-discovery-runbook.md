@@ -2,106 +2,144 @@
 
 ## Overview
 
-Luma discovery is **Apify-first** and production-verified on VPS. The deterministic script pipeline is the default path; browser discovery is fallback only. Meetup and Eventbrite flows are unchanged. Registration, email parsing, calendar writes, and Telegram reporting are separate steps — not part of this runbook.
+Luma and Meetup discovery share **`discovery_common.py`**: normalize → hard-filter → dedupe → score → tier. Luma is **Apify-first**; Meetup uses Apify export JSON per keyword (`data`, `algorithm`, `compute`). Browser discovery is Luma fallback only. Registration, calendar, Telegram are separate — not part of this runbook.
 
 **Platform order:** Luma → Meetup → Eventbrite
+
+**Deployed on VPS:** 2026-07-07 (`discovery-refactor` backup under profile `backups/`)
 
 ---
 
 ## Do
 
-- Run Luma discovery through the Apify-backed script pipeline **first**.
-- Use these absolute VPS paths:
+### Luma (production path)
 
-  ```bash
-  python3 ~/.hermes/profiles/signaltable/scripts/apify_luma.py \
-    --location singapore \
-    --queries data,algorithm,compute \
-    --max-items 50 \
-    | python3 ~/.hermes/profiles/signaltable/scripts/luma_discovery_report.py
-  ```
+```bash
+python3 ~/.hermes/profiles/signaltable/scripts/apify_luma.py \
+  --location singapore \
+  --queries data,algorithm,compute \
+  --max-items 50 \
+  | python3 ~/.hermes/profiles/signaltable/scripts/luma_discovery_report.py --debug-filter
+```
 
-- Require `APIFY_TOKEN` in `~/.hermes/profiles/signaltable/.env`.
-- Keep only **upcoming** events: event `start_at` ≥ now in **Asia/Singapore**.
-- Keep only **Singapore** events: match on city, country, full address, or featured city.
-- Keep only **Tech/AI-relevant** events: category `AI` / `Tech`, or keywords in title/summary/organizer — e.g. data, algorithm, compute, AI, ML, LLM, GenAI, developer, engineering, prompt, agent, model.
-- **Deduplicate** by URL first, then normalized title + date.
-- Use **`min_score=4`** in production (default in `luma_discovery_report.py`).
-- Use **`min_score=2`** only for debugging or inspection.
-- Preserve the output contract exactly (see below).
-- Load skill via `skill_view(name="event-discovery")` before running discovery.
-- Keep `skills/event-discovery.md` and `docs/architecture.md` aligned with this runbook.
+Requires `APIFY_TOKEN` in `~/.hermes/profiles/signaltable/.env`.
+
+**Hard filters (before scoring):** upcoming (SGT), Singapore, in-person/offline, not clearly paid, tech-relevant, not off-topic.
+
+**Defaults:** `--min-score 4` (use `--min-score 2` for inspection only).
+
+### Meetup (export JSON per keyword)
+
+```bash
+python3 ~/.hermes/profiles/signaltable/scripts/meetup_discovery_report.py \
+  --input /path/to/dataset_meetup-data-sg-physical_....json \
+  --query data \
+  --debug-filter
+```
+
+Repeat for `algorithm` and `compute` exports.
+
+### Eventbrite (export JSON — Science & Tech, free)
+
+Primary Apify task: `eventbrite-science-tech-singapore-free`
+
+```bash
+python3 ~/.hermes/profiles/signaltable/scripts/eventbrite_discovery_report.py \
+  --input /path/to/dataset_eventbrite-science-tech-singapore-free_....json \
+  --query science-tech \
+  --debug-filter
+```
+
+Local sample fixture (dev only):
+
+```bash
+python3 signaltable/scripts/eventbrite_discovery_report.py \
+  --input signaltable/fixtures/eventbrite-science-tech-singapore-free.sample.json \
+  --debug-filter
+```
+
+### Combined dry-run (inspection only)
+
+```bash
+python3 ~/.hermes/profiles/signaltable/scripts/discovery_pipeline.py \
+  --luma-input /tmp/signaltable_luma_live.json \
+  --meetup data:/tmp/signaltable-meetup-exports/dataset_meetup-data-....json \
+  --meetup algorithm:/tmp/signaltable-meetup-exports/dataset_meetup-algorithm-....json \
+  --meetup compute:/tmp/signaltable-meetup-exports/dataset_meetup-compute-....json \
+  --debug-filter
+```
+
+**Note:** `discovery_pipeline.py --luma-input` may pass more Luma rows than the production pipe because it injects search-query keyword provenance. Use the **Apify pipe + `luma_discovery_report.py`** path for production Luma until aligned.
 
 ---
 
 ## Don't
 
-- Don't use `indexedDateAfter` as an event-freshness filter.
-- Don't rely on scrape/index timestamps for “upcoming”.
-- Don't use browser Luma discovery when Apify succeeds.
-- Don't change Meetup or Eventbrite logic as part of Luma work.
-- Don't modify gateway, cron, Google Calendar, Telegram, or LobsterMail for discovery changes.
-- Don't treat `Luma: 0` after scoring as an Apify failure.
-- Don't require signup, login, or registration for discovery.
-- Don't call a tool named `event-discovery` — skills are not tools.
-- Don't create a Luma account to work around Apify or browser issues.
+- Don't use browser Luma when Apify succeeds.
+- Don't treat `Luma: 0` after scoring as Apify failure.
+- Don't modify gateway, cron, calendar, Telegram for discovery deploys.
+- Don't trigger registration or approval flows during discovery validation.
 
 ---
 
-## Fallback
+## Output contracts
 
-Use browser Luma discovery **only if**:
-
-- `APIFY_TOKEN` is missing,
-- Apify request fails (non-zero exit),
-- normalized output is empty (zero events from `apify_luma.py`),
-- or there is an Apify HTTP/actor error.
-
-**Do not fall back** if `Luma: 0` appears because scoring removed all rows (`min_score=4`).
-
-If browser fallback is used:
-
-- Read-only, discovery-only.
-- One `browser_navigate` → `https://lu.ma/singapore`
-- One `browser_snapshot` (compact)
-- Parse snapshot text only — no clicks, no `browser_console`, no registration flows.
-
----
-
-## Output Contract
-
-First line exactly:
+**Luma:**
 
 ```
 Luma: N
-```
-
-Then a markdown table:
-
-```
 | title | date | score | tier | source | URL |
-| --- | --- | ---: | ---: | --- | --- |
 ```
 
-Pass Apify pipeline stdout through unchanged. A blocker line after `Luma: 0` is valid when filters/scoring removed all rows.
-
-**Debug filter trace** (stderr, optional):
+**Meetup:**
 
 ```
-filter_debug: raw=N -> upcoming=N -> singapore=N -> tech_ai=N -> deduped=N
+Meetup: N
+| title | date | score | tier | source | matched | URL |
 ```
+
+**Filter debug (stderr):**
+
+```
+filter_debug: raw=N -> pass=N -> deduped=N -> scored=N (min_score=4)
+```
+
+---
+
+## Scripts (VPS)
+
+| Script | Role |
+|--------|------|
+| `discovery_common.py` | Shared schema, filters, scoring, dedupe |
+| `luma_normalize.py` | Luma → canonical schema |
+| `meetup_normalize.py` | Meetup → canonical schema |
+| `apify_luma.py` | Live Luma fetch |
+| `luma_discovery_report.py` | Luma-only report |
+| `meetup_discovery_report.py` | Meetup-only report |
+| `eventbrite_normalize.py` | Eventbrite → canonical schema |
+| `eventbrite_discovery_report.py` | Eventbrite-only report |
+| `discovery_pipeline.py` | Combined dry-run CLI |
+
+**Skill:** `~/.hermes/profiles/signaltable/skills/event-discovery/SKILL.md`
+
+**Backup (pre-deploy):** `~/.hermes/profiles/signaltable/backups/discovery-refactor-2026-07-07_13-12-56/`
+
+---
+
+## Live validation snapshot (2026-07-07 VPS)
+
+| Path | raw → pass → scored | min_score=4 | min_score=6 |
+|------|---------------------|-------------|-------------|
+| Luma (production pipe) | 45 → 3 → 3 | 3 | 3 |
+| Meetup (3 exports) | 70 → 25 → 12 | 12 | 12 |
+| Combined pipeline | 115 → 37 → 24 | 24 | 24 |
+
+Production Luma top events (score 9, Tier 1): AI In The Wild (GenAI), Better Data Bolder AI, Singapore AI & Robotics Demo Night.
 
 ---
 
 ## Notes
 
-| Item | Detail |
-|------|--------|
-| Scripts | `apify_luma.py`, `luma_normalize.py`, `luma_discovery_report.py` |
-| Optional env | `APIFY_ACTOR_ID` (default `solidcode/luma-scraper`), `APIFY_TASK_ID` |
-| Skill | `~/.hermes/profiles/signaltable/skills/event-discovery/SKILL.md` |
-| Replay raw JSON | `apify_luma.py --input dataset.json \| luma_discovery_report.py` |
-| Meetup / Eventbrite | Unchanged — browser/scrapling per skill Steps 2–3 |
-| Downstream (separate) | `event-register`, `email-parser`, `calendar-updater`, `telegram-reporter` |
-
-**Typical filter trace (production):** `raw=34 → upcoming=34 → singapore=34 → tech_ai=7 → deduped=7 → scored=2`
+- Meetup `approval_required` not mapped in Apify export (always null).
+- HYBRID Meetup events hard-rejected (in-person-only policy).
+- Replay Luma: `apify_luma.py --input dataset.json | luma_discovery_report.py`

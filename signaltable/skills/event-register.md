@@ -26,16 +26,37 @@ Store the returned address in ~/.hermes/profiles/signaltable/.env as LOBSTERMAIL
 ```
 
 ### 2. Open Event Registration Page
-Use the Steel browser (or Hermes browser tools) to navigate to `registration_url`.
+Resolve the authoritative registration URL before navigating:
 
+- **Meetup + KonfHub:** use `registration_url` (KonfHub link), NOT the Meetup event page.
+- **Meetup native RSVP:** use Meetup event URL.
+- Handoff JSON from approval queue includes `registration_platform` and `registration_url`.
+
+Dry-run gateway resolution locally:
+```bash
+python3 ~/.hermes/profiles/signaltable/scripts/registration_gateway.py resolve \
+  --input discovery_event.json --handoff
+```
+
+Use the Steel browser to navigate to `registration_url`:
 ```
 browser_navigate(url=<registration_url>)
 ```
 
-Take a screenshot and pause if any of:
-- Login wall is detected → escalate to Tier 3, send Telegram, STOP
-- CAPTCHA is detected → send Telegram asking owner to complete manually, STOP
-- Price > 0 shown on registration page (even if listed as free in discovery) → escalate to Tier 3, STOP
+**KonfHub-specific:** KonfHub is the authoritative signup gateway. Fill only standard fields (name, email). Do not invent answers for custom questions.
+
+Take a screenshot and **STOP** (outcome `REGISTRATION_MANUAL_REQUIRED`) if any of:
+- Login wall / OAuth required
+- CAPTCHA detected
+- Price > 0 shown on registration page (even if listed as free in discovery)
+- Phone OTP or non-standard required fields (company, LinkedIn, etc.)
+- Form inaccessible (iframe/blocked)
+
+Assess stop conditions without guessing (optional dry-run after page inspect):
+```bash
+python3 ~/.hermes/profiles/signaltable/scripts/registration_gateway.py assess \
+  --input page_signals.json
+```
 
 ### 3. Fill Registration Form
 Standard fields:
@@ -54,17 +75,33 @@ After submitting, capture:
 - Order/ticket number if shown
 - Any QR code shown (capture as image)
 
-Record result:
+Record result using standard outcomes:
 ```json
 {
   "event_title": "...",
-  "registration_status": "completed",
+  "registration_url": "...",
+  "registration_platform": "konfhub",
+  "outcome": "REGISTRATION_SUBMITTED",
+  "reason": "Form submitted with on-page confirmation",
   "ticket_id": "...",
-  "confirmation_page_text": "...",
-  "registered_at": "2026-07-03T08:15:00+08:00",
-  "email_used": "signaltable-reg@lobstermail.ai"
+  "email_used": "signaltable-reg@lobstermail.ai",
+  "registered_at": "2026-07-03T08:15:00+08:00"
 }
 ```
+
+Valid `outcome` values:
+- `REGISTRATION_SUBMITTED` — form submitted; on-page success
+- `CONFIRMATION_PENDING` — submitted; awaiting email (most KonfHub flows)
+- `REGISTRATION_MANUAL_REQUIRED` — CAPTCHA/login/custom fields; owner must finish
+- `REGISTRATION_FAILED` — submit error; do not retry unattended
+
+Validate/normalize outcome record:
+```bash
+python3 ~/.hermes/profiles/signaltable/scripts/registration_gateway.py record \
+  --input outcome.json
+```
+
+**Do NOT call `calendar_write.py --write` here.** Calendar write requires LobsterMail confirmation evidence.
 
 ### 5. Trigger Email Check
 After registration, immediately trigger the email-parser skill with a 2-minute wait:
@@ -75,5 +112,5 @@ Wait 2 minutes, then run email-parser skill for this event's confirmation email.
 ### 6. Log
 Append to `~/.hermes/profiles/signaltable/logs/signaltable.log`:
 ```
-[2026-07-03 08:15 SGT] REGISTERED: "Singapore AI Meetup" (Tier 1) | ticket: EVT-12345 | email: signaltable-reg@lobstermail.ai
+[2026-07-03 08:15 SGT] REGISTERED: "Singapore AI Meetup" (Tier 1) | ticket: <real-ticket-id> | email: signaltable-reg@lobstermail.ai
 ```

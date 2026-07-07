@@ -1,76 +1,119 @@
 # SignalTable: Calendar Updater Skill
 
 ## Purpose
-Add a confirmed event to the owner's Google Calendar via `gcal.py` (direct Google Calendar API). Prevents duplicate entries.
+Add a **confirmed** event to the owner's Google Calendar via `calendar_write.py` → `gcal.py`. Prevents duplicate entries and **blocks discovery-only rows**.
+
+## Pipeline position
+
+```
+event-discovery  →  candidates only (never writes calendar)
+       ↓
+event-register   →  registration attempt (separate skill)
+       ↓
+email-parser     →  parses confirmation email; sets confirmation_status
+       ↓
+calendar_write   →  confirmation gate + map + gcal create
+```
+
+**Rule:** Discovery finds candidates. Registration + confirmation email (or equivalent registration proof) proves attendance. **Only then** may calendar write run.
 
 ## Pre-conditions
-- `GOOGLE_CALENDAR_ID` and `GOOGLE_CREDENTIALS_FILE` are set in `~/.hermes/profiles/signaltable/.env`
-- Service account JSON exists at the credentials path (default: `~/.hermes/profiles/signaltable/gcal-credentials.json`)
-- Target calendar **"SignalTable Events"** is shared with the service account email (Make changes to events)
-- Event has been confirmed (`confirmation_status == "confirmed"`)
+- `GOOGLE_CALENDAR_ID` and `GOOGLE_CREDENTIALS_FILE` in `~/.hermes/profiles/signaltable/.env`
+- Service account JSON at credentials path (default: `~/.hermes/profiles/signaltable/gcal-credentials.json`)
+- Target calendar **SignalTable Events** shared with service account (Make changes to events)
+- Input event has:
+  - `confirmation_status` == `"confirmed"`
+  - At least one evidence field: `confirmation_source`, `ticket_id`, `raw_email_id`, or `confirmation_evidence`
 
-## Script location
+## Scripts
 
-```
-~/.hermes/profiles/signaltable/scripts/gcal.py
-```
+| Script | Role |
+|--------|------|
+| `calendar_write.py` | Confirmation gate, field mapper, dry-run / write |
+| `gcal.py` | Low-level Google Calendar list/create + dedup |
 
 ## Steps
 
-### 1. Check for Existing Entry
-Before creating, search for the event by title within ±1 day of the event date:
+### 1. Dry-run (recommended first)
 
 ```bash
-python3 ~/.hermes/profiles/signaltable/scripts/gcal.py list \
-  --calendar "$GOOGLE_CALENDAR_ID" \
-  --from "<date-1d>" \
-  --to "<date+1d>" \
-  --q "<event_title>"
+python3 ~/.hermes/profiles/signaltable/scripts/calendar_write.py \
+  --input /path/to/confirmed_event.json \
+  --dry-run
 ```
 
-Returns a JSON array. If a matching event is found (same title, same date), skip creation and log:
+Returns JSON with `action: dry_run` and `gcal_args` when allowed; `action: rejected` when unconfirmed.
 
-```
-[2026-07-03T08:18 SGT] CALENDAR_SKIP: "Singapore AI Meetup" already in calendar (id: <id>)
-```
-
-### 2. Create Calendar Entry
-If no duplicate found:
+Built-in gate test (no API, no secrets):
 
 ```bash
-python3 ~/.hermes/profiles/signaltable/scripts/gcal.py create \
-  --calendar "$GOOGLE_CALENDAR_ID" \
-  --summary "<event_title>" \
-  --start "<event_date_rfc3339>" \
-  --end "<event_end_date_rfc3339>" \
-  --description "Organizer: <organizer_name>
-Ticket: <ticket_id>
-Source: <source_url>
-Registration email: <lobstermail_address>
-
-Confirmation: <confirmation_status>"
+python3 ~/.hermes/profiles/signaltable/scripts/calendar_write.py --self-test
 ```
 
-Notes:
-- If end time is unknown, default to start + 2 hours
-- All times in SGT (UTC+8), formatted as RFC 3339 with timezone offset: `2026-07-10T19:00:00+08:00`
-- Include the ticket ID and source URL in the description for traceability
-- `create` runs an internal dedup check; if duplicate detected, stdout is `DUPLICATE_SKIPPED` — treat as CALENDAR_SKIP
+### 2. Write after confirmation
 
-### 3. Handle Errors
-If `gcal.py` prints JSON to stderr or exits non-zero:
-- Send Telegram: "⚠️ SignalTable: Google Calendar write failed. Check service account permissions and calendar sharing."
-- Do NOT retry without verifying credentials and calendar ACL
+```bash
+python3 ~/.hermes/profiles/signaltable/scripts/calendar_write.py \
+  --input /path/to/confirmed_event.json \
+  --write
+```
 
-Common fixes:
-- Calendar not shared with service account email
-- Wrong `GOOGLE_CALENDAR_ID`
-- Missing or invalid credentials JSON
-- Google Calendar API not enabled in Google Cloud project
+Outcomes:
+- `created` — new calendar event JSON from Google
+- `duplicate_skipped` — `gcal.py` dedup matched title+date (`DUPLICATE_SKIPPED`)
+- `rejected` — confirmation gate failed (exit code 2)
+- `error` — credentials/calendar/API failure (exit code 1)
 
-### 4. Log
+### 3. Input schema (email-parser handoff)
+
+```json
+{
+  "event_title": "Singapore AI Meetup",
+  "event_date": "2026-07-10T19:00:00+08:00",
+  "event_end": "2026-07-10T21:00:00+08:00",
+  "event_location": "WeWork Suntec City, Singapore",
+  "confirmation_status": "confirmed",
+  "confirmation_source": "email",
+  "raw_email_id": "lm-abc123",
+  "ticket_id": "<real-ticket-id-from-email>",
+  "organizer_name": "...",
+  "source_url": "https://lu.ma/...",
+  "registration_email": "signaltable-reg@lobstermail.ai"
+}
+```
+
+Alias fields also accepted: `title`, `start_time`, `end_time`, `url`, `venue_name`, `full_address`.
+
+If `event_end` / `end_time` missing, end defaults to **start + 2 hours** (SGT).
+
+### 4. What is rejected
+
+- Discovery-only JSON (no `confirmation_status`)
+- `confirmation_status` of `pending`, `waitlisted`, etc.
+- `confirmed` without evidence fields (prevents accidental writes)
+
+### 5. Log (after successful write)
+
 Append to `~/.hermes/profiles/signaltable/logs/signaltable.log`:
 
 ```
-[2026-07-03 08:18 SGT] CALENDAR_ADDED: "Singapore AI Meetup" | 2026-07-10T19:00+08:00 | calendar: SignalTable Events | gcal_id: <id>
+[2026-07-07 13:30 SGT] CALENDAR_ADDED: "Singapore AI Meetup" | 2026-07-10T19:00+08:00 | gcal_id: <id>
 ```
+
+Skip log line on `duplicate_skipped`.
+
+### 6. Errors
+
+If `calendar_write.py` returns `action: error`:
+- Verify calendar shared with service account
+- Verify `GOOGLE_CALENDAR_ID`
+- Verify credentials JSON and Calendar API enabled
+
+Do **not** retry blindly on duplicate; `duplicate_skipped` is success-from-dedup perspective.
+
+## Not in scope (this skill)
+
+- Batch/cron automation
+- Telegram notifications
+- Registration flows
+- Writing from discovery output directly

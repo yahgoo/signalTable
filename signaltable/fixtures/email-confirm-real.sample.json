@@ -1,0 +1,16 @@
+{
+  "event_title": "KSUG.AI Singapore #47 Meetup @Nutanix on 22 Jul 2026",
+  "event_date": "2026-07-22T18:00:00+08:00",
+  "event_location": "Nutanix, Singapore",
+  "confirmation_status": "confirmed",
+  "confirmation_source": "konfhub_email",
+  "raw_email_id": "ibxmsg_7f3a9c2e1b4d",
+  "ticket_id": "KH-7842-ksug-sg",
+  "message_from": "noreply@konfhub.com",
+  "message_subject": "Registration confirmed for KSUG.AI Singapore #47",
+  "message_received_at": "2026-07-07T19:40:00+08:00",
+  "inbox_fetched_at": "2026-07-07T19:45:00+08:00",
+  "confirmation_evidence": "list_emails message_id=ibxmsg_7f3a9c2e1b4d",
+  "source_url": "https://konfhub.com/ksug-sg-2026-07-22",
+  "registration_email": "signaltable-reg@lobstermail.ai"
+}

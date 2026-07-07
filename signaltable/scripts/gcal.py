@@ -177,6 +177,8 @@ def cmd_create(args: argparse.Namespace) -> int:
     }
     if args.description:
         body["description"] = args.description
+    if getattr(args, "location", ""):
+        body["location"] = args.location
 
     try:
         created = (
@@ -242,6 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="End time RFC 3339, e.g. 2026-07-10T21:00:00+08:00",
     )
     create_parser.add_argument("--description", default="", help="Event description")
+    create_parser.add_argument("--location", default="", help="Event location / venue address")
     create_parser.add_argument(
         "--dedup-from",
         help="Dedup window start YYYY-MM-DD (default: day before --start)",

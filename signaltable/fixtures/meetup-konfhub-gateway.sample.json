@@ -1,0 +1,40 @@
+[
+  {
+    "eventId": "315295343",
+    "eventName": "Singapore dbt Meetup (in-person) - Jul 2026",
+    "eventDescription": "Talks on analytics engineering and data quality. Register on KonfHub: https://konfhub.com/e/sg-dbt-meetup-jul-2026 Free event; lunch provided.",
+    "eventUrl": "https://www.meetup.com/singapore-dbt-meetup/events/315295343/",
+    "date": "2026-07-09T18:30:00+08:00",
+    "endDateTime": "2026-07-09T21:00:00+08:00",
+    "eventType": "PHYSICAL",
+    "isOnline": false,
+    "isPaidEvent": false,
+    "venue": {
+      "name": "Thoughtworks Singapore",
+      "city": "Singapore",
+      "country": "SG",
+      "address": "182 Cecil Street, Frasers Tower"
+    },
+    "group": {"name": "Singapore dbt Meetup"},
+    "topics": [{"name": "data"}]
+  },
+  {
+    "eventId": "314638221",
+    "eventName": "SHELLGym — Windows Forensics and Reverse Engineering basics",
+    "eventDescription": "Hands-on cybersecurity workshop. RSVP on Meetup.",
+    "eventUrl": "https://www.meetup.com/div0_sg/events/314638221/",
+    "date": "2026-07-18T14:00:00+08:00",
+    "endDateTime": "2026-07-18T18:00:00+08:00",
+    "eventType": "PHYSICAL",
+    "isOnline": false,
+    "isPaidEvent": false,
+    "venue": {
+      "name": "Division Zero",
+      "city": "Singapore",
+      "country": "SG",
+      "address": "Singapore"
+    },
+    "group": {"name": "Division Zero (Div0)"},
+    "topics": [{"name": "cybersecurity"}]
+  }
+]

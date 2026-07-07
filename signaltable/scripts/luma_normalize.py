@@ -208,6 +208,104 @@ def parse_datetime(value: str) -> datetime | None:
     return dt
 
 
+def normalize_canonical(item: dict[str, Any], *, source_query: str = "") -> dict[str, Any]:
+    """Map raw or compact Luma row to the shared discovery schema."""
+    from discovery_common import empty_event
+
+    base = normalize_raw_item(item) if is_raw_apify_item(item) or item.get("event") else dict(item)
+    event_obj = item.get("event") if isinstance(item.get("event"), dict) else {}
+
+    location_type = _first_str(event_obj.get("location_type"), item.get("location_type")).lower()
+    is_in_person = False
+    in_person_evidence = ""
+    if location_type == "offline":
+        is_in_person = True
+        in_person_evidence = "location_type=offline"
+    elif location_type in {"zoom", "online", "virtual"}:
+        is_in_person = False
+        in_person_evidence = f"location_type={location_type}"
+    elif base.get("city") or base.get("location"):
+        is_in_person = True
+        in_person_evidence = "offline geo/address present"
+
+    is_free, price_text, free_evidence = _infer_luma_free(item, base)
+    waitlist = ""
+    if event_obj.get("waitlist_enabled"):
+        waitlist = _first_str(event_obj.get("waitlist_status"), "enabled")
+
+    matched = source_query.strip().lower()
+    if not matched and isinstance(item.get("source_query"), str):
+        matched = item["source_query"].strip().lower()
+
+    event = empty_event("luma", source_query=matched, matched_keyword=matched)
+    event.update(
+        {
+            "title": base.get("title", ""),
+            "description": base.get("summary", ""),
+            "start_time": base.get("start_at", ""),
+            "end_time": base.get("end_at", ""),
+            "timezone": base.get("timezone") or "Asia/Singapore",
+            "venue_name": _first_str(base.get("location"), event_obj.get("geo_address_info", {}).get("city") if isinstance(event_obj.get("geo_address_info"), dict) else ""),
+            "full_address": base.get("location", ""),
+            "city": base.get("city", ""),
+            "country": base.get("country", ""),
+            "featured_city": base.get("featured_city", ""),
+            "is_in_person": is_in_person,
+            "in_person_evidence": in_person_evidence,
+            "is_free": is_free,
+            "price_text": price_text,
+            "free_evidence": free_evidence,
+            "organizer_name": base.get("organizer", ""),
+            "group_name": "",
+            "url": base.get("source_url", ""),
+            "source_event_id": _first_str(item.get("api_id"), event_obj.get("api_id")),
+            "rsvp_count": item.get("guest_count"),
+            "attendee_count": item.get("guest_count"),
+            "approval_required": base.get("requires_approval"),
+            "waitlist_status": waitlist,
+            "raw_tags": list(base.get("categories") or []),
+            "discovery_channel": "apify",
+            "matched_keywords": [matched] if matched else [],
+            **{k: base[k] for k in ("platform", "source_url", "start_at", "end_at", "summary", "location", "organizer", "categories", "raw_category", "requires_approval", "is_sold_out") if k in base},
+        }
+    )
+    return event
+
+
+def _infer_luma_free(item: dict[str, Any], base: dict[str, Any]) -> tuple[bool | None, str, str]:
+    ticket_info = item.get("ticket_info") if isinstance(item.get("ticket_info"), dict) else {}
+    ticketing = item.get("ticketing") if isinstance(item.get("ticketing"), dict) else {}
+
+    if ticket_info.get("is_free") is True or ticketing.get("isFree") is True:
+        return True, "free", "ticket_info/ticketing is_free=true"
+    if ticket_info.get("is_free") is False or ticketing.get("isFree") is False:
+        price = ticket_info.get("price") or ticket_info.get("max_price") or ticketing.get("price")
+        text = str(price) if price not in (None, "", 0) else "paid ticket type"
+        return False, text, "ticket marked paid"
+
+    ticket_types = item.get("ticket_types") or item.get("ticketTypes") or []
+    if isinstance(ticket_types, list):
+        names = [str(t.get("name", "")).lower() for t in ticket_types if isinstance(t, dict)]
+        if any("free" in n for n in names):
+            return True, "free", "ticket type name contains Free"
+        if any(n for n in names if "free" not in n and n):
+            return False, ", ".join(names[:2]), "non-free ticket type present"
+
+    if base.get("is_free") is True:
+        return True, "free", "normalized is_free=true"
+    if base.get("is_free") is False:
+        return False, "paid", "normalized is_free=false"
+
+    text_blob = f" {base.get('summary','')} {base.get('description','')} ".lower()
+    if "free" in text_blob and "free trial" not in text_blob:
+        return True, "free", "summary/description mentions free"
+    paid_markers = ("sgd", "usd", "$", "paid admission", "ticket price")
+    if any(x in text_blob for x in paid_markers):
+        return False, "paid (text)", "summary/description suggests paid"
+
+    return None, "", "free status unknown"
+
+
 def normalize_raw_item(item: dict[str, Any]) -> dict[str, Any]:
     """Map raw Apify/API row to compact canonical schema."""
     event = item.get("event") if isinstance(item.get("event"), dict) else {}

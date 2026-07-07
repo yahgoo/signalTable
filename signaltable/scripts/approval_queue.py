@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from registration_gateway import build_register_prompt, build_registration_handoff, resolve_registration_target
+
 SGT = ZoneInfo("Asia/Singapore")
 DEFAULT_QUEUE = Path.home() / ".hermes/profiles/signaltable/pending_approvals.json"
 HERMES_BIN = Path.home() / ".local/bin/hermes"
@@ -55,24 +58,50 @@ def _save(path: Path, data: dict[str, Any]) -> None:
 
 
 def format_message(event: dict[str, Any]) -> str:
+    reg_url = event.get("registration_url") or event.get("url") or ""
+    platform = event.get("registration_platform") or "unknown"
+    gateway_line = ""
+    if platform == "konfhub":
+        gateway_line = f"Gateway: KonfHub\nRegister at: {reg_url}\n"
     return (
         "Approve registration?\n"
         f"Event: {event['title']}\n"
         f"When: {event['when']}\n"
         f"Source: {event['source']}\n"
+        f"{gateway_line}"
         f"Why flagged: {event['reason']}\n"
         "Reply YES to register, NO to skip."
     )
 
 
 def cmd_add(args: argparse.Namespace) -> int:
-    event = {
-        "id": args.id or uuid.uuid4().hex[:12],
+    base = {
         "title": args.title,
         "when": args.when,
         "source": args.source,
         "reason": args.reason,
         "url": args.url or "",
+        "tier": args.tier,
+        "score": args.score,
+    }
+    if args.description:
+        base["description"] = args.description
+    if args.registration_url:
+        base["registration_url"] = args.registration_url
+    if args.registration_platform:
+        base["registration_platform"] = args.registration_platform
+    resolved = resolve_registration_target(base)
+    event = {
+        "id": args.id or uuid.uuid4().hex[:12],
+        "title": resolved.get("title") or args.title,
+        "when": args.when,
+        "source": args.source,
+        "reason": args.reason,
+        "url": resolved.get("event_page_url") or resolved.get("url") or args.url or "",
+        "event_page_url": resolved.get("event_page_url") or resolved.get("url") or "",
+        "registration_url": resolved.get("registration_url") or "",
+        "registration_platform": resolved.get("registration_platform") or "",
+        "registration_gateway_evidence": resolved.get("registration_gateway_evidence") or "",
         "tier": args.tier,
         "score": args.score,
         "created_at": _now_iso(),
@@ -180,16 +209,8 @@ def cmd_handle_reply(args: argparse.Namespace) -> int:
     spawned = False
     if decision == "yes":
         msg = f"Approved: {event['title']}. Starting registration."
-        url = event.get("url") or ""
-        prompt = (
-            "Owner approved registration via Telegram YES.\n"
-            f"Title: {event['title']}\n"
-            f"When: {event['when']}\n"
-            f"Source: {event['source']}\n"
-            f"Registration URL: {url}\n"
-            "Load event-register skill and register at Registration URL now. "
-            "Do not search for the link. Do not ask for confirmation."
-        )
+        handoff = build_registration_handoff(event)
+        prompt = build_register_prompt(handoff)
         if args.spawn_register:
             signaltable = SIGNALTABLE_BIN if SIGNALTABLE_BIN.is_file() else Path("signaltable")
             log_dir = Path.home() / ".hermes/profiles/signaltable/logs"
@@ -248,6 +269,9 @@ def main() -> int:
     add.add_argument("--source", required=True)
     add.add_argument("--reason", required=True)
     add.add_argument("--url", default="")
+    add.add_argument("--description", default="", help="Event description for gateway URL extraction")
+    add.add_argument("--registration-url", default="")
+    add.add_argument("--registration-platform", default="")
     add.add_argument("--tier", type=int, default=None)
     add.add_argument("--score", type=int, default=None)
     add.add_argument("--id", default="")

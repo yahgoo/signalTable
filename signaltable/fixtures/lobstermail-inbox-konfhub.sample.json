@@ -1,0 +1,17 @@
+[
+  {
+    "id": "eml_konfhub_real_7f3a9c2e",
+    "from": "noreply@konfhub.com",
+    "subject": "Registration confirmed for KSUG.AI Singapore #47 Meetup @Nutanix",
+    "body": "Thank you for registering.\nEvent: KSUG.AI Singapore #47 Meetup @Nutanix on 22 Jul 2026\nDate: 22 Jul 2026, 6:00 PM\nVenue: Nutanix, Singapore\nTicket ID: KH-7842-ksug-sg\nhttps://konfhub.com/ksug-sg-2026-07-22",
+    "receivedAt": "2026-07-07T19:40:00+08:00",
+    "preview": "Thank you for registering. KSUG.AI Singapore #47"
+  },
+  {
+    "id": "eml_unrelated_newsletter",
+    "from": "news@example-events.com",
+    "subject": "Weekly tech newsletter",
+    "body": "Unrelated content.",
+    "receivedAt": "2026-07-06T10:00:00+08:00"
+  }
+]

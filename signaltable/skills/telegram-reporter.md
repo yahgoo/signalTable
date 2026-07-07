@@ -36,17 +36,24 @@ Found <N> new events matching your criteria:
 No action needed for Tier 1 events. Tier 2/3 approvals use separate YES/NO messages (Section C).
 ```
 
-### B. Registration Confirmation
-Send immediately after a Tier 1 auto-registration:
+### B. Registration Confirmation (KonfHub / email-parser watch)
+
+Send immediately when `lobstermail_poll.py --watch` finds a validated confirmation (via `hermes send` inside the poll script):
+
 ```
-✅ Registered: Singapore AI Meetup
-📆 Thu 10 Jul 2026, 7:00 PM SGT
-📍 WeWork Suntec City
-🎟 Ticket ID: EVT-12345
-📧 Confirmed via email
-📅 Added to SignalTable Events calendar
+KonfHub confirmation received
+
+Event: KSUG.AI Singapore #47 Meetup @Nutanix on 22 Jul 2026
+When: 22 Jul 2026
+Ticket: KH-7842-ksug-sg
+From: noreply@konfhub.com
+Subject: Registration confirmed for KSUG.AI Singapore #47
+Message ID: eml_...
+
+Inbox evidence validated. Calendar write is now allowed.
 ```
-Include QR code image if available.
+
+Never include raw email body content (injection risk). Calendar write runs only after this notify succeeds (`owner_notified_at` stamped).
 
 ### C. Tier 2/3 Approval Request
 
