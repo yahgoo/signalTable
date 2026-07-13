@@ -118,23 +118,6 @@ KNOWN_ORGANIZERS = (
 
 WORKSHOP_TERMS = ("workshop", "hands-on", "hackathon", "buildathon", "lab", "bootcamp")
 
-FOOD_POSITIVE_TERMS = (
-    "food",
-    "snacks",
-    "lunch",
-    "dinner",
-    "refreshments",
-    "catering",
-    "drinks",
-    "meal",
-)
-
-FOOD_NEGATIVE_PHRASES = (
-    "no food",
-    "no refreshments",
-    "refreshments not provided",
-)
-
 NEGATIVE_LOCATIONS = (
     "united states",
     "denver",
@@ -212,6 +195,14 @@ def empty_event(source: str, *, source_query: str = "", matched_keyword: str = "
         "why_rejected": [],
         "singapore_evidence": "",
         "in_person_evidence": "",
+        "food_status": "not_mentioned",
+        "food_card_line": "Food: Not mentioned",
+        "food_evidence": "",
+        "meetup_venue_name": "",
+        "meetup_venue_address": "",
+        "registration_venue_name": "",
+        "registration_venue_address": "",
+        "registration_venue_source": "",
         # backward compat
         "platform": source,
         "source_url": "",
@@ -242,25 +233,6 @@ def _text_blob(event: dict[str, Any]) -> str:
         event.get("country", ""),
     ]
     return f" {' '.join(str(p) for p in parts)} ".lower()
-
-
-def _food_text_blob(event: dict[str, Any]) -> str:
-    parts = [
-        event.get("title", ""),
-        event.get("description", ""),
-        " ".join(event.get("raw_tags") or []),
-    ]
-    return f" {' '.join(str(p) for p in parts)} ".lower()
-
-
-def _food_preference_signal(text: str) -> tuple[int, str]:
-    for phrase in FOOD_NEGATIVE_PHRASES:
-        if phrase in text:
-            return -1, f"food preference: {phrase}"
-    for term in FOOD_POSITIVE_TERMS:
-        if _keyword_hit(text, term):
-            return 1, f"food preference: mentions {term}"
-    return 0, ""
 
 
 def _keyword_hit(text: str, keyword: str) -> bool:
@@ -466,7 +438,11 @@ def score_event(event: dict[str, Any]) -> tuple[int, list[str]]:
         score += 1
         why.append("hands-on format")
 
-    food_delta, food_reason = _food_preference_signal(_food_text_blob(event))
+    from food_detection import apply_food_status, food_score_delta
+
+    if not event.get("food_status"):
+        apply_food_status(event)
+    food_delta, food_reason = food_score_delta(str(event.get("food_status") or ""))
     if food_delta:
         score += food_delta
         why.append(food_reason)
@@ -534,8 +510,22 @@ def merge_events(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str
         if not merged.get(field) and incoming.get(field):
             merged[field] = incoming[field]
 
-    for field in ("description", "free_evidence", "singapore_evidence", "in_person_evidence"):
+    for field in ("description", "free_evidence", "singapore_evidence", "in_person_evidence", "food_evidence"):
         if len(str(incoming.get(field) or "")) > len(str(merged.get(field) or "")):
+            merged[field] = incoming[field]
+
+    for field in ("food_status", "food_card_line"):
+        if merged.get("food_status") in (None, "", "not_mentioned") and incoming.get("food_status"):
+            merged[field] = incoming[field]
+        elif incoming.get("food_status") == "provided":
+            merged[field] = incoming[field]
+
+    # Meetup venue: never let a merge replace a populated primary Meetup venue.
+    for field in ("meetup_venue_name", "meetup_venue_address", "venue_name", "full_address", "city", "country"):
+        if not _first_str(merged.get(field)) and _first_str(incoming.get(field)):
+            merged[field] = incoming[field]
+    for field in ("registration_venue_name", "registration_venue_address", "registration_venue_source"):
+        if not _first_str(merged.get(field)) and _first_str(incoming.get(field)):
             merged[field] = incoming[field]
 
     if int(incoming.get("relevance_score") or 0) > int(merged.get("relevance_score") or 0):
@@ -563,6 +553,8 @@ def filter_pipeline(
     *,
     now: datetime | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    from food_detection import apply_food_status
+
     counts = {"raw": len(events)}
     passed: list[dict[str, Any]] = []
 
@@ -570,7 +562,7 @@ def filter_pipeline(
         ok, _ = hard_filter(event, now=now)
         if not ok:
             continue
-        passed.append(event)
+        passed.append(apply_food_status(event))
 
     counts["hard_filter_pass"] = len(passed)
 

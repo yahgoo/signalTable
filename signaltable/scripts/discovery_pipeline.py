@@ -52,7 +52,11 @@ def _load_luma(path: str, queries: list[str]) -> list[dict[str, Any]]:
     for item in items:
         q = _first_query(item, queries, default_query)
         if item.get("source") == "luma" and item.get("start_time"):
-            rows.append(item)
+            # Pre-normalized compact item — pass through but ensure event_page_url is set
+            row = dict(item)
+            if not row.get("event_page_url") and row.get("url"):
+                row["event_page_url"] = row["url"]
+            rows.append(row)
         elif is_raw_apify_item(item) or item.get("event") or item.get("api_id"):
             rows.append(normalize_luma(item, source_query=q))
         elif item.get("platform") == "luma":

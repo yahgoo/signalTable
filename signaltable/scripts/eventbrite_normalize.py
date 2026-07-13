@@ -442,6 +442,7 @@ def normalize_canonical(item: dict[str, Any], *, source_query: str = "") -> dict
             "organizer_name": organizer,
             "group_name": organizer,
             "url": url,
+            "event_page_url": url,
             "source_event_id": event_id,
             "rsvp_count": None,
             "attendee_count": None,

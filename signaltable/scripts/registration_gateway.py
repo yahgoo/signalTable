@@ -138,6 +138,24 @@ def resolve_registration_target(event: dict[str, Any]) -> dict[str, Any]:
 def assess_stop_conditions(signals: dict[str, Any]) -> dict[str, Any]:
     """Map Steel/page observations to a registration outcome (no browser required)."""
     platform = _first_str(signals.get("registration_platform"), "unknown")
+    if platform == "luma":
+        if signals.get("waitlist") is True:
+            return {
+                "outcome": REGISTRATION_FAILED,
+                "reason": "Luma waitlist is not confirmed registration",
+                "stop_conditions": ["waitlist"],
+                "registration_platform": platform,
+                "next_step": "Stop; waitlist is not smoke success.",
+            }
+        if signals.get("wallet_required") is True:
+            return {
+                "outcome": REGISTRATION_MANUAL_REQUIRED,
+                "reason": "Luma wallet/token verification required",
+                "stop_conditions": ["manual_only"],
+                "registration_platform": platform,
+                "next_step": "Telegram owner; wallet verification cannot be automated.",
+            }
+
     hits = [key for key in STOP_SIGNALS if signals.get(key) is True]
     if hits:
         reasons = [STOP_SIGNALS[key] for key in hits]
@@ -250,11 +268,29 @@ def build_register_prompt(handoff: dict[str, Any]) -> str:
 
 def enrich_registration_fields(event: dict[str, Any]) -> dict[str, Any]:
     """In-place enrich for Meetup normalize path."""
+    preserved = {
+        key: event.get(key)
+        for key in (
+            "venue_name",
+            "full_address",
+            "meetup_venue_name",
+            "meetup_venue_address",
+            "city",
+            "country",
+            "location",
+            "registration_venue_name",
+            "registration_venue_address",
+            "registration_venue_source",
+        )
+    }
     resolved = resolve_registration_target(event)
     event["event_page_url"] = resolved.get("event_page_url", "")
     event["registration_url"] = resolved.get("registration_url", "")
     event["registration_platform"] = resolved.get("registration_platform", "")
     event["registration_gateway_evidence"] = resolved.get("registration_gateway_evidence", "")
+    for key, value in preserved.items():
+        if value not in (None, ""):
+            event[key] = value
     return event
 
 
@@ -322,6 +358,12 @@ def run_self_test() -> int:
             "submit_success": False,
         }
     )
+    luma_waitlist = assess_stop_conditions(
+        {"registration_platform": "luma", "waitlist": True, "submit_success": True}
+    )
+    luma_wallet = assess_stop_conditions(
+        {"registration_platform": "luma", "wallet_required": True, "submit_success": False}
+    )
 
     reg_outcome = record_outcome(
         {
@@ -365,6 +407,8 @@ def run_self_test() -> int:
         "captcha_manual": captcha["outcome"] == REGISTRATION_MANUAL_REQUIRED,
         "submit_pending": pending["outcome"] == CONFIRMATION_PENDING,
         "custom_fields_manual": custom["outcome"] == REGISTRATION_MANUAL_REQUIRED,
+        "luma_waitlist_failed": luma_waitlist["outcome"] == REGISTRATION_FAILED,
+        "luma_wallet_manual": luma_wallet["outcome"] == REGISTRATION_MANUAL_REQUIRED,
         "outcome_recorded": reg_outcome["ok"] is True,
         "calendar_blocks_pending": calendar_blocked.get("action") == "rejected",
         "calendar_allows_confirmed": calendar_ok.get("action") == "dry_run",
