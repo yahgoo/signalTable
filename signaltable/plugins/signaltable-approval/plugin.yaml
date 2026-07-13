@@ -1,6 +1,6 @@
 name: signaltable-approval
 version: 1.0.0
-description: Intercept Telegram YES/NO replies for SignalTable event registration approvals before the gateway agent runs.
+description: Intercept Telegram y/n/m (Version A shortlist) and YES/NO (registration) before the gateway agent runs.
 author: SignalTable
 hooks:
   - pre_gateway_dispatch

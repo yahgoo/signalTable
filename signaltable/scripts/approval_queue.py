@@ -200,7 +200,8 @@ def cmd_handle_reply(args: argparse.Namespace) -> int:
     data = _load(path)
     if not data["pending"]:
         if args.notify:
-            _hermes_send("--to", "telegram", "No pending registration approval. Discovery may have already completed.")
+            # Do not spam Telegram when nothing is queued; router avoids this path for shortlist replies.
+            pass
         if args.json:
             print(json.dumps({"matched": False, "reason": "no_pending"}))
         return 0

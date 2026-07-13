@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hermes pre_gateway_dispatch hook: handle SignalTable YES/NO before the agent runs."""
+"""Hermes pre_gateway_dispatch hook: Version A shortlist + registration approval routing."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPT = Path.home() / ".hermes/profiles/signaltable/scripts/approval_queue.py"
+SCRIPT = Path.home() / ".hermes/profiles/signaltable/scripts/telegram_reply_router.py"
 
 
 def _load_payload() -> dict[str, Any]:
@@ -61,6 +61,11 @@ def _event_platform(payload: dict[str, Any]) -> str:
     return ""
 
 
+def _looks_like_reply(text: str) -> bool:
+    token = text.strip().lower()
+    return token in {"y", "yes", "n", "no", "skip", "m", "maybe"}
+
+
 def main() -> int:
     payload = _load_payload()
     text = _event_text(payload).strip()
@@ -69,8 +74,7 @@ def main() -> int:
     if platform and platform != "telegram":
         return 0
 
-    token = text.strip().upper()
-    if token not in {"YES", "Y", "NO", "N", "SKIP"}:
+    if not _looks_like_reply(text):
         return 0
 
     if not SCRIPT.is_file():
@@ -80,11 +84,9 @@ def main() -> int:
         [
             sys.executable,
             str(SCRIPT),
-            "handle-reply",
             text,
-            "--notify",
+            "--live",
             "--spawn-register",
-            "--json",
         ],
         capture_output=True,
         text=True,
@@ -100,6 +102,20 @@ def main() -> int:
         return 0
 
     if not data.get("matched"):
+        return 0
+
+    route = data.get("route", "unknown")
+    if route == "shortlist":
+        label = data.get("label", "")
+        title = (data.get("event") or {}).get("title", "event")
+        print(
+            json.dumps(
+                {
+                    "action": "skip",
+                    "reason": f"signaltable v1 feedback {label} for {title}",
+                }
+            )
+        )
         return 0
 
     decision = data.get("decision", "")
