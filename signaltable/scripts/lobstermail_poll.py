@@ -40,6 +40,7 @@ DEFAULT_POLL_INTERVAL_SEC = 30
 DEFAULT_MAX_WAIT_SEC = 7200
 
 KONFHUB_SENDER_DOMAINS = ("konfhub.com",)
+LUMA_SENDER_DOMAINS = ("lu.ma", "luma.com")
 CONFIRMATION_WORDS = ("confirm", "registration", "registered", "ticket", "booking")
 TICKET_ID_RE = re.compile(
     r"(?:ticket\s*(?:id|#|number)?\s*[:#]?\s*)([A-Za-z0-9][A-Za-z0-9._-]{3,})",
@@ -136,7 +137,8 @@ def finalize_confirmed_with_owner_notify(
         }
 
     payload["owner_notified_at"] = _now_iso()
-    payload["telegram_notify_evidence"] = "hermes send --to telegram konfhub_confirmation"
+    source = _first_str(payload.get("confirmation_source"), "confirmation_email")
+    payload["telegram_notify_evidence"] = f"hermes send --to telegram {source}"
     finalized = {
         **result,
         "action": "accepted_notified",
@@ -285,6 +287,11 @@ def _is_konfhub_sender(from_addr: str) -> bool:
     return any(domain == d or domain.endswith(f".{d}") for d in KONFHUB_SENDER_DOMAINS)
 
 
+def _is_luma_sender(from_addr: str) -> bool:
+    domain = _sender_domain(from_addr)
+    return any(domain == d or domain.endswith(f".{d}") for d in LUMA_SENDER_DOMAINS)
+
+
 def _event_match_text(event_title: str, source_url: str, subject: str, body: str) -> bool:
     blob = f"{subject}\n{body}".lower()
     if source_url and source_url.lower() in blob:
@@ -328,6 +335,7 @@ def build_confirmed_from_message(
     source_url: str,
     inbox_id: str = "",
     registration_email: str = "",
+    confirmation_source: str = "konfhub_email",
 ) -> dict[str, Any]:
     raw_id = _first_str(message.get("id"), message.get("emailId"), message.get("email_id"))
     message_from = _first_str(message.get("from"), message.get("sender"))
@@ -340,7 +348,7 @@ def build_confirmed_from_message(
         "event_date": _extract_event_date(body),
         "event_location": "",
         "confirmation_status": "confirmed",
-        "confirmation_source": "konfhub_email",
+        "confirmation_source": confirmation_source,
         "raw_email_id": raw_id,
         "ticket_id": _extract_ticket_id(body),
         "message_from": message_from,
@@ -385,8 +393,41 @@ def find_konfhub_confirmation(
     return candidates[0]
 
 
-def poll_konfhub_confirmation(
+def find_luma_confirmation(
+    messages: list[dict[str, Any]],
     *,
+    event_title: str,
+    source_url: str = "",
+) -> dict[str, Any] | None:
+    candidates: list[dict[str, Any]] = []
+    for message in messages:
+        sender = _first_str(message.get("from"), message.get("sender"))
+        subject = _first_str(message.get("subject"))
+        body = _first_str(message.get("body"), message.get("preview"), message.get("text"))
+        if not _is_luma_sender(sender):
+            continue
+        if not _looks_like_confirmation(subject, body):
+            continue
+        if not _event_match_text(event_title, source_url, subject, body):
+            continue
+        candidates.append(message)
+
+    if not candidates:
+        return None
+
+    def sort_key(msg: dict[str, Any]) -> str:
+        return _first_str(msg.get("receivedAt"), msg.get("createdAt"), msg.get("received_at"))
+
+    candidates.sort(key=sort_key, reverse=True)
+    return candidates[0]
+
+
+def _poll_platform_confirmation(
+    *,
+    platform: str,
+    find_fn: Any,
+    confirmation_source: str,
+    pending_label: str,
     event_title: str,
     source_url: str = "",
     messages: list[dict[str, Any]] | None = None,
@@ -420,17 +461,18 @@ def poll_konfhub_confirmation(
     else:
         fetch_meta = {"fetched_count": len(fetched), "inbox_id": inbox_id, "source": "fixture"}
 
-    match = find_konfhub_confirmation(fetched, event_title=event_title, source_url=source_url)
+    match = find_fn(fetched, event_title=event_title, source_url=source_url)
     if match is None:
         pending = make_pending_payload(
             event_title=event_title,
-            reason="no matching KonfHub confirmation email in LobsterMail inbox",
+            reason=f"no matching {pending_label} confirmation email in LobsterMail inbox",
         )
         return {
             "action": "pending",
             "reason": pending["reason"],
             "calendar_write_allowed": False,
             "payload": pending,
+            "platform": platform,
             **fetch_meta,
         }
 
@@ -439,17 +481,67 @@ def poll_konfhub_confirmation(
         event_title=event_title,
         source_url=source_url,
         inbox_id=inbox_id,
+        confirmation_source=confirmation_source,
     )
     validated = process_confirmation_payload(built)
     validated.update(fetch_meta)
+    validated["platform"] = platform
     validated["matched_email_id"] = _first_str(match.get("id"))
     validated["matched_from"] = _first_str(match.get("from"))
     validated["matched_subject"] = _first_str(match.get("subject"))
     return validated
 
 
-def watch_konfhub_confirmation(
+def poll_konfhub_confirmation(
     *,
+    event_title: str,
+    source_url: str = "",
+    messages: list[dict[str, Any]] | None = None,
+    inbox_id: str = "",
+    token: str = "",
+    since_hours: int = 48,
+) -> dict[str, Any]:
+    return _poll_platform_confirmation(
+        platform="konfhub",
+        find_fn=find_konfhub_confirmation,
+        confirmation_source="konfhub_email",
+        pending_label="KonfHub",
+        event_title=event_title,
+        source_url=source_url,
+        messages=messages,
+        inbox_id=inbox_id,
+        token=token,
+        since_hours=since_hours,
+    )
+
+
+def poll_luma_confirmation(
+    *,
+    event_title: str,
+    source_url: str = "",
+    messages: list[dict[str, Any]] | None = None,
+    inbox_id: str = "",
+    token: str = "",
+    since_hours: int = 48,
+) -> dict[str, Any]:
+    return _poll_platform_confirmation(
+        platform="luma",
+        find_fn=find_luma_confirmation,
+        confirmation_source="luma_email",
+        pending_label="Luma",
+        event_title=event_title,
+        source_url=source_url,
+        messages=messages,
+        inbox_id=inbox_id,
+        token=token,
+        since_hours=since_hours,
+    )
+
+
+def _watch_platform_confirmation(
+    *,
+    poll_fn: Any,
+    platform_label: str,
     event_title: str,
     source_url: str = "",
     messages: list[dict[str, Any]] | None = None,
@@ -469,7 +561,7 @@ def watch_konfhub_confirmation(
 
     while True:
         attempt += 1
-        result = poll_konfhub_confirmation(
+        result = poll_fn(
             event_title=event_title,
             source_url=source_url,
             messages=messages,
@@ -505,7 +597,7 @@ def watch_konfhub_confirmation(
             timeout = dict(last_pending)
             timeout["action"] = "pending_timeout"
             timeout["reason"] = (
-                f"no KonfHub confirmation after {attempt} poll(s); "
+                f"no {platform_label} confirmation after {attempt} poll(s); "
                 "still waiting for LobsterMail inbox message"
             )
             timeout["calendar_write_allowed"] = False
@@ -515,13 +607,75 @@ def watch_konfhub_confirmation(
             timeout = dict(last_pending or result)
             timeout["action"] = "pending_timeout"
             timeout["reason"] = (
-                f"no KonfHub confirmation after {int(elapsed)}s; "
+                f"no {platform_label} confirmation after {int(elapsed)}s; "
                 "still waiting for LobsterMail inbox message"
             )
             timeout["calendar_write_allowed"] = False
             return timeout
 
         time.sleep(interval_sec)
+
+
+def watch_konfhub_confirmation(
+    *,
+    event_title: str,
+    source_url: str = "",
+    messages: list[dict[str, Any]] | None = None,
+    inbox_id: str = "",
+    token: str = "",
+    since_hours: int = 48,
+    interval_sec: int = DEFAULT_POLL_INTERVAL_SEC,
+    max_wait_sec: int = DEFAULT_MAX_WAIT_SEC,
+    max_attempts: int = 0,
+    dry_run_notify: bool = False,
+    emit_pending: bool = True,
+) -> dict[str, Any]:
+    return _watch_platform_confirmation(
+        poll_fn=poll_konfhub_confirmation,
+        platform_label="KonfHub",
+        event_title=event_title,
+        source_url=source_url,
+        messages=messages,
+        inbox_id=inbox_id,
+        token=token,
+        since_hours=since_hours,
+        interval_sec=interval_sec,
+        max_wait_sec=max_wait_sec,
+        max_attempts=max_attempts,
+        dry_run_notify=dry_run_notify,
+        emit_pending=emit_pending,
+    )
+
+
+def watch_luma_confirmation(
+    *,
+    event_title: str,
+    source_url: str = "",
+    messages: list[dict[str, Any]] | None = None,
+    inbox_id: str = "",
+    token: str = "",
+    since_hours: int = 48,
+    interval_sec: int = DEFAULT_POLL_INTERVAL_SEC,
+    max_wait_sec: int = DEFAULT_MAX_WAIT_SEC,
+    max_attempts: int = 0,
+    dry_run_notify: bool = False,
+    emit_pending: bool = True,
+) -> dict[str, Any]:
+    return _watch_platform_confirmation(
+        poll_fn=poll_luma_confirmation,
+        platform_label="Luma",
+        event_title=event_title,
+        source_url=source_url,
+        messages=messages,
+        inbox_id=inbox_id,
+        token=token,
+        since_hours=since_hours,
+        interval_sec=interval_sec,
+        max_wait_sec=max_wait_sec,
+        max_attempts=max_attempts,
+        dry_run_notify=dry_run_notify,
+        emit_pending=emit_pending,
+    )
 
 
 def run_self_test() -> int:
@@ -562,6 +716,19 @@ def run_self_test() -> int:
         emit_pending=False,
     )
 
+    luma_fixture = Path(__file__).resolve().parent.parent / "fixtures" / "lobstermail-inbox-luma-aic.sample.json"
+    _, luma_messages = load_fixture_messages(luma_fixture)
+    luma_title = (
+        "AI Governance for SMEs: Practical Solutions (without the Enterprise headache) "
+        "w/ The AI Collective"
+    )
+    luma_accepted = poll_luma_confirmation(
+        event_title=luma_title,
+        source_url="https://luma.com/aic-si-7-8",
+        messages=luma_messages,
+        inbox_id="ibx_fixture",
+    )
+
     checks = {
         "real_message_accepted": accepted.get("action") == "accepted",
         "accepted_blocks_calendar_until_notify": accepted.get("calendar_write_allowed") is False,
@@ -571,9 +738,12 @@ def run_self_test() -> int:
         "notify_sets_owner_notified": bool(notified.get("owner_notified_at")),
         "calendar_allowed_after_notify": notified.get("calendar_write_allowed") is True,
         "watch_empty_inbox_times_out": watch_timeout.get("action") == "pending_timeout",
+        "luma_message_accepted": luma_accepted.get("action") == "accepted",
+        "luma_source_tagged": luma_accepted.get("payload", {}).get("confirmation_source") == "luma_email",
     }
     payload = {
         "accepted": accepted,
+        "luma_accepted": luma_accepted,
         "notified": notified,
         "pending": pending,
         "placeholder": fake,
@@ -586,11 +756,12 @@ def run_self_test() -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Poll LobsterMail and parse KonfHub confirmations")
+    parser = argparse.ArgumentParser(description="Poll LobsterMail and parse KonfHub/Luma confirmations")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--konfhub", action="store_true", help="Poll for KonfHub confirmation")
+    parser.add_argument("--luma", action="store_true", help="Poll for Luma confirmation")
     parser.add_argument("--event-title", required=False, default="")
-    parser.add_argument("--source-url", default="https://konfhub.com/ksug-sg-2026-07-22")
+    parser.add_argument("--source-url", default="")
     parser.add_argument(
         "--fixture",
         help="Offline fixture inbox (blocked in production; use --self-test for fixture checks)",
@@ -625,16 +796,28 @@ def main() -> int:
     if args.self_test:
         return run_self_test()
 
-    if not args.konfhub:
-        parser.error("--konfhub required (or use --self-test)")
+    if args.konfhub and args.luma:
+        parser.error("choose one of --konfhub or --luma")
+    if not args.konfhub and not args.luma:
+        parser.error("--konfhub or --luma required (or use --self-test)")
     if not args.event_title:
-        parser.error("--event-title required for --konfhub")
+        parser.error("--event-title required")
+    platform = "konfhub" if args.konfhub else "luma"
+    if not args.source_url:
+        args.source_url = (
+            "https://konfhub.com/ksug-sg-2026-07-22"
+            if platform == "konfhub"
+            else "https://luma.com/aic-si-7-8"
+        )
     if args.fixture and not args.self_test:
         print(
             json.dumps(
                 {
                     "action": "rejected",
-                    "reason": "production forbids --fixture; use lobstermail_poll.py --watch --konfhub against live API",
+                    "reason": (
+                        f"production forbids --fixture; use lobstermail_poll.py --watch --{platform} "
+                        "against live API"
+                    ),
                     "calendar_write_allowed": False,
                 }
             ),
@@ -647,8 +830,11 @@ def main() -> int:
     if args.fixture:
         inbox_id, messages = load_fixture_messages(Path(args.fixture))
 
+    poll_fn = poll_konfhub_confirmation if platform == "konfhub" else poll_luma_confirmation
+    watch_fn = watch_konfhub_confirmation if platform == "konfhub" else watch_luma_confirmation
+
     if args.watch:
-        result = watch_konfhub_confirmation(
+        result = watch_fn(
             event_title=args.event_title,
             source_url=args.source_url,
             messages=messages,
@@ -661,7 +847,7 @@ def main() -> int:
             emit_pending=True,
         )
     else:
-        result = poll_konfhub_confirmation(
+        result = poll_fn(
             event_title=args.event_title,
             source_url=args.source_url,
             messages=messages,
