@@ -1,18 +1,32 @@
 #!/usr/bin/env python3
 """Normalize and deterministically filter Apify Luma dataset items.
 
-Handles both solidcode/luma-scraper rows and nested lu.ma API-style exports.
+Handles solidcode/luma-scraper rows (primary) and compact pre-normalized exports.
+Schema assumptions: see docs/luma-apify-schema.md
+
 Read-only — no auth flows.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import sys
+import warnings
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
 SGT = ZoneInfo("Asia/Singapore")
+
+# solidcode/luma-scraper raw shape markers (see docs/luma-apify-schema.md)
+SOLIDCODE_MARKERS = frozenset(
+    {"api_id", "event", "name", "title", "start_at", "startAt", "eventUrl", "categoryNames"}
+)
+FOREIGN_ACTOR_MARKERS = frozenset(
+    {"eventName", "pageUrl", "venueName", "startDate", "eventDescription", "venueAddress"}
+)
+CRITICAL_OUTPUT_FIELDS = ("title", "start_time", "url", "full_address", "description")
 
 TECH_AI_CATEGORIES = {"ai", "tech"}
 
@@ -93,6 +107,10 @@ def _build_source_url(item: dict[str, Any], event: dict[str, Any]) -> str:
         event.get("url"),
         item.get("sourceUrl"),
         item.get("link"),
+        item.get("pageUrl"),
+        item.get("page_url"),
+        item.get("publicUrl"),
+        item.get("slug"),
     ):
         text = _first_str(candidate)
         if not text:
@@ -108,18 +126,27 @@ def _location_parts(item: dict[str, Any], event: dict[str, Any]) -> tuple[str, s
     geo = event.get("geo_address_info") if isinstance(event.get("geo_address_info"), dict) else {}
     loc = item.get("location") if isinstance(item.get("location"), dict) else {}
     featured = item.get("featured_city") if isinstance(item.get("featured_city"), dict) else {}
+    venue = item.get("venue") if isinstance(item.get("venue"), dict) else {}
 
     city = _first_str(
         geo.get("city"),
         loc.get("city"),
+        venue.get("city"),
         featured.get("name") if featured.get("slug") == "singapore" else "",
         featured.get("name"),
+        item.get("city") if isinstance(item.get("city"), str) else "",
     )
-    country = _first_str(geo.get("country"), loc.get("country"))
+    country = _first_str(geo.get("country"), loc.get("country"), venue.get("country"))
     full_address = _first_str(
         geo.get("full_address"),
         loc.get("address"),
         loc.get("name"),
+        item.get("venueName"),
+        item.get("venueAddress"),
+        venue.get("name"),
+        venue.get("address"),
+        item.get("location") if isinstance(item.get("location"), str) else "",
+        item.get("address") if isinstance(item.get("address"), str) else "",
     )
     if city and country and city not in full_address:
         location = ", ".join(p for p in (full_address or city, country) if p)
@@ -164,6 +191,10 @@ def _summary(item: dict[str, Any]) -> str:
             text = _first_str(cal.get("description_short"))
     if not text:
         text = _first_str(item.get("description"), item.get("summary"), item.get("subtitle"))
+    if not text:
+        text = _first_str(item.get("eventDescription"), item.get("body"))
+        if isinstance(item.get("details"), dict):
+            text = text or _first_str(item["details"].get("text"), item["details"].get("description"))
     return text[:500]
 
 
@@ -188,6 +219,11 @@ def _ticketing(item: dict[str, Any]) -> tuple[bool | None, bool | None, bool | N
         if ticket_info.get("is_sold_out") is not None:
             is_sold_out = bool(ticket_info.get("is_sold_out"))
 
+    if item.get("isFree") is not None:
+        is_free = bool(item.get("isFree"))
+    if item.get("is_free") is not None and is_free is None:
+        is_free = bool(item.get("is_free"))
+
     if item.get("sold_out") is not None:
         is_sold_out = bool(item.get("sold_out"))
     return is_free, requires_approval, is_sold_out
@@ -208,11 +244,106 @@ def parse_datetime(value: str) -> datetime | None:
     return dt
 
 
+def _has_solidcode_markers(item: dict[str, Any]) -> bool:
+    return any(key in item for key in SOLIDCODE_MARKERS)
+
+
+def _has_foreign_actor_markers(item: dict[str, Any]) -> bool:
+    return any(key in item for key in FOREIGN_ACTOR_MARKERS)
+
+
+def inspect_luma_schema(item: dict[str, Any], *, normalized: dict[str, Any] | None = None) -> list[str]:
+    """Return schema drift warnings for a raw (and optional normalized) Luma row."""
+    warns: list[str] = []
+
+    if _has_foreign_actor_markers(item) and not _has_solidcode_markers(item):
+        foreign = sorted(k for k in FOREIGN_ACTOR_MARKERS if k in item)
+        warns.append(
+            f"possible_non_solidcode_actor_schema: foreign fields {foreign} without solidcode markers"
+        )
+
+    if is_raw_apify_item(item):
+        if not _has_solidcode_markers(item):
+            warns.append("missing_solidcode_markers: expected api_id, event, or name/title + start_at")
+        if not _first_str(item.get("name"), item.get("title"), (item.get("event") or {}).get("name")):
+            warns.append("missing_expected_field:title")
+        if not _first_str(
+            item.get("start_at"),
+            item.get("startAt"),
+            (item.get("event") or {}).get("start_at"),
+            (item.get("event") or {}).get("startAt"),
+        ):
+            warns.append("missing_expected_field:start_at")
+        for key in ("start_at", "startAt", "end_at", "endAt", "name", "title"):
+            if key in item and item[key] is not None and not isinstance(item[key], str):
+                warns.append(f"unexpected_type:{key}")
+        if isinstance(item.get("event"), dict):
+            for key in ("start_at", "startAt"):
+                val = item["event"].get(key)
+                if val is not None and not isinstance(val, str):
+                    warns.append(f"unexpected_type:event.{key}")
+    elif not (
+        (item.get("platform") == "luma" and item.get("start_at"))
+        or (item.get("source") == "luma" and item.get("start_time"))
+    ):
+        if _has_foreign_actor_markers(item):
+            warns.append("unexpected_item_shape: not raw solidcode, compact luma, or pre-normalized row")
+
+    if normalized is not None:
+        for field in CRITICAL_OUTPUT_FIELDS:
+            value = normalized.get(field)
+            if field == "full_address":
+                value = value or normalized.get("venue_name") or normalized.get("location")
+            if not _first_str(value):
+                warns.append(f"missing_critical_field:{field}")
+        if normalized.get("is_free") is None and not _first_str(normalized.get("price_text")):
+            warns.append("missing_critical_field:price")
+
+    return warns
+
+
+def _emit_schema_warnings(item: dict[str, Any], msgs: list[str]) -> None:
+    title = _first_str(item.get("name"), item.get("title"), item.get("eventName"), "(untitled)")
+    for msg in msgs:
+        warnings.warn(f"luma_schema[{title[:40]}]: {msg}", stacklevel=3)
+
+
+def _coalesce_compact_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Map compact / pre-normalized rows onto fields normalize_canonical expects."""
+    row = dict(item)
+    if not row.get("source_url"):
+        row["source_url"] = _first_str(row.get("event_page_url"), row.get("url"))
+    if not row.get("start_at"):
+        row["start_at"] = _first_str(row.get("start_time"), row.get("date"))
+    if not row.get("summary"):
+        row["summary"] = _first_str(row.get("description"))
+    if not row.get("location"):
+        row["location"] = _first_str(row.get("full_address"), row.get("venue_name"))
+    return row
+
+
 def normalize_canonical(item: dict[str, Any], *, source_query: str = "") -> dict[str, Any]:
     """Map raw or compact Luma row to the shared discovery schema."""
     from discovery_common import empty_event
 
-    base = normalize_raw_item(item) if is_raw_apify_item(item) or item.get("event") else dict(item)
+    schema_warnings = inspect_luma_schema(item)
+
+    if is_raw_apify_item(item) or item.get("event"):
+        base = normalize_raw_item(item)
+    elif item.get("platform") == "luma" and item.get("start_at"):
+        base = _coalesce_compact_item(item)
+    elif item.get("source") == "luma" and item.get("start_time"):
+        base = _coalesce_compact_item(
+            {
+                **item,
+                "platform": "luma",
+                "start_at": item.get("start_time"),
+                "end_at": item.get("end_time"),
+            }
+        )
+    else:
+        base = _coalesce_compact_item(normalize_raw_item(item))
+
     event_obj = item.get("event") if isinstance(item.get("event"), dict) else {}
 
     location_type = _first_str(event_obj.get("location_type"), item.get("location_type")).lower()
@@ -237,16 +368,31 @@ def normalize_canonical(item: dict[str, Any], *, source_query: str = "") -> dict
     if not matched and isinstance(item.get("source_query"), str):
         matched = item["source_query"].strip().lower()
 
+    description = _first_str(base.get("summary"), base.get("description"))
+    if not description and (is_raw_apify_item(item) or item.get("event")):
+        description = _summary(item)
+
+    page_url = _first_str(
+        base.get("source_url"),
+        item.get("url"),
+        item.get("eventUrl"),
+        item.get("pageUrl"),
+        item.get("event_page_url"),
+    )
+    venue_label = _first_str(base.get("location"), base.get("venue_name"))
+    if not venue_label and isinstance(event_obj.get("geo_address_info"), dict):
+        venue_label = _first_str(event_obj["geo_address_info"].get("full_address"))
+
     event = empty_event("luma", source_query=matched, matched_keyword=matched)
     event.update(
         {
-            "title": base.get("title", ""),
-            "description": base.get("summary", ""),
-            "start_time": base.get("start_at", ""),
-            "end_time": base.get("end_at", ""),
+            "title": _first_str(base.get("title"), item.get("name"), item.get("eventName")),
+            "description": description,
+            "start_time": _first_str(base.get("start_at"), base.get("start_time"), item.get("startDate")),
+            "end_time": _first_str(base.get("end_at"), base.get("end_time"), item.get("endDate")),
             "timezone": base.get("timezone") or "Asia/Singapore",
-            "venue_name": _first_str(base.get("location"), event_obj.get("geo_address_info", {}).get("city") if isinstance(event_obj.get("geo_address_info"), dict) else ""),
-            "full_address": base.get("location", ""),
+            "venue_name": venue_label,
+            "full_address": venue_label,
             "city": base.get("city", ""),
             "country": base.get("country", ""),
             "featured_city": base.get("featured_city", ""),
@@ -257,7 +403,8 @@ def normalize_canonical(item: dict[str, Any], *, source_query: str = "") -> dict
             "free_evidence": free_evidence,
             "organizer_name": base.get("organizer", ""),
             "group_name": "",
-            "url": base.get("source_url", ""),
+            "url": page_url,
+            "event_page_url": page_url,
             "source_event_id": _first_str(item.get("api_id"), event_obj.get("api_id")),
             "rsvp_count": item.get("guest_count"),
             "attendee_count": item.get("guest_count"),
@@ -269,6 +416,13 @@ def normalize_canonical(item: dict[str, Any], *, source_query: str = "") -> dict
             **{k: base[k] for k in ("platform", "source_url", "start_at", "end_at", "summary", "location", "organizer", "categories", "raw_category", "requires_approval", "is_sold_out") if k in base},
         }
     )
+
+    post_warnings = inspect_luma_schema(item, normalized=event)
+    all_warnings = schema_warnings + [w for w in post_warnings if w not in schema_warnings]
+    if all_warnings:
+        event["normalization_warnings"] = all_warnings
+        _emit_schema_warnings(item, all_warnings)
+
     return event
 
 
@@ -313,8 +467,22 @@ def normalize_raw_item(item: dict[str, Any]) -> dict[str, Any]:
     city, country, location = _location_parts(item, event)
     is_free, requires_approval, is_sold_out = _ticketing(item)
 
-    start_at = _first_str(item.get("start_at"), item.get("startAt"), event.get("start_at"), event.get("startAt"))
-    end_at = _first_str(item.get("end_at"), item.get("endAt"), event.get("end_at"), event.get("endAt"))
+    start_at = _first_str(
+        item.get("start_at"),
+        item.get("startAt"),
+        event.get("start_at"),
+        event.get("startAt"),
+        item.get("startDate"),
+        item.get("start_date"),
+    )
+    end_at = _first_str(
+        item.get("end_at"),
+        item.get("endAt"),
+        event.get("end_at"),
+        event.get("endAt"),
+        item.get("endDate"),
+        item.get("end_date"),
+    )
     timezone = _first_str(item.get("timezone"), event.get("timezone"))
 
     featured = item.get("featured_city") if isinstance(item.get("featured_city"), dict) else {}
@@ -322,7 +490,13 @@ def normalize_raw_item(item: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "platform": "luma",
-        "title": _first_str(item.get("name"), item.get("title"), event.get("name"), item.get("eventTitle")),
+        "title": _first_str(
+            item.get("name"),
+            item.get("title"),
+            event.get("name"),
+            item.get("eventTitle"),
+            item.get("eventName"),
+        ),
         "start_at": start_at,
         "end_at": end_at,
         "timezone": timezone,
@@ -507,3 +681,104 @@ def dominant_filter_drop(counts: dict[str, int]) -> str:
     if dropped <= 0:
         return "blocker: no rows matched Singapore Tech/AI upcoming filters"
     return f"blocker: {stage} filter removed the most rows ({dropped})"
+
+
+SOLIDCODE_SELF_TEST_ITEM: dict[str, Any] = {
+    "api_id": "evt-selftest-solidcode",
+    "name": "Singapore AI Builders Meetup",
+    "url": "https://lu.ma/sg-ai-builders",
+    "start_at": "2026-08-01T18:30:00+08:00",
+    "end_at": "2026-08-01T20:00:00+08:00",
+    "categories": [{"name": "AI"}, {"name": "Tech"}],
+    "event": {
+        "api_id": "evt-selftest-solidcode",
+        "timezone": "Asia/Singapore",
+        "location_type": "offline",
+        "geo_address_info": {
+            "city": "Singapore",
+            "country": "Singapore",
+            "full_address": "71 Ayer Rajah Crescent, Singapore",
+        },
+    },
+    "ticket_info": {"is_free": True},
+    "description_mirror": {"text": "Hands-on evening on eval harnesses and regression tests."},
+    "hosts": [{"name": "Singapore AI Builders"}],
+}
+
+WRONG_SHAPE_SELF_TEST_ITEM: dict[str, Any] = {
+    "eventName": "Foreign Actor Schema Simulation",
+    "pageUrl": "https://lu.ma/foreign-actor-schema-sim",
+    "venueName": "Some Venue, Singapore",
+    "startDate": "2026-08-15T19:00:00+08:00",
+    "eventDescription": "Free event. Lexis-like row: foreign field names only, no solidcode markers.",
+}
+
+
+def _critical_fields_populated(event: dict[str, Any]) -> dict[str, bool]:
+    venue = _first_str(event.get("full_address"), event.get("venue_name"), event.get("location"))
+    price_ok = event.get("is_free") is not None or bool(_first_str(event.get("price_text")))
+    return {
+        "title": bool(_first_str(event.get("title"))),
+        "start_time": bool(_first_str(event.get("start_time"))),
+        "url": bool(_first_str(event.get("url"), event.get("event_page_url"))),
+        "venue": bool(venue),
+        "description": bool(_first_str(event.get("description"))),
+        "price": price_ok,
+    }
+
+
+def run_self_test() -> int:
+    import argparse
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        solid = normalize_canonical(SOLIDCODE_SELF_TEST_ITEM, source_query="ai")
+        wrong = normalize_canonical(WRONG_SHAPE_SELF_TEST_ITEM, source_query="data")
+
+    solid_warns = list(solid.get("normalization_warnings") or [])
+    wrong_warns = list(wrong.get("normalization_warnings") or [])
+    solid_critical = _critical_fields_populated(solid)
+    wrong_critical = _critical_fields_populated(wrong)
+
+    checks = {
+        "solidcode_shape_ok": not any("possible_non_solidcode" in w for w in solid_warns),
+        "solidcode_no_missing_critical": not any(
+            w.startswith("missing_critical_field:") for w in solid_warns
+        ),
+        "solidcode_critical_populated": all(solid_critical.values()),
+        "wrong_shape_warns_foreign_schema": any(
+            "possible_non_solidcode_actor_schema" in w for w in wrong_warns
+        ),
+        "wrong_shape_has_normalization_warnings": bool(wrong_warns),
+        "wrong_shape_critical_not_blank": all(wrong_critical.values()),
+        "wrong_shape_title_from_eventName": solid.get("title") != "" and wrong.get("title") != "",
+        "wrong_shape_url_from_pageUrl": wrong.get("url") == "https://lu.ma/foreign-actor-schema-sim",
+    }
+
+    payload = {
+        "checks": checks,
+        "pass": all(checks.values()),
+        "solidcode_warnings": solid_warns,
+        "wrong_shape_warnings": wrong_warns,
+        "solidcode_critical": solid_critical,
+        "wrong_shape_critical": wrong_critical,
+        "stderr_warning_count": len(caught),
+    }
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0 if payload["pass"] else 1
+
+
+def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Luma Apify normalizer and filters")
+    parser.add_argument("--self-test", action="store_true", help="Schema drift regression checks")
+    args = parser.parse_args()
+    if args.self_test:
+        return run_self_test()
+    parser.error("--self-test required")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
