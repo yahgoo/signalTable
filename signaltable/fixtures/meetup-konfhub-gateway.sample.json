@@ -10,10 +10,15 @@
     "isOnline": false,
     "isPaidEvent": false,
     "venue": {
-      "name": "Thoughtworks Singapore",
+      "name": "Monk's Brew Club",
       "city": "Singapore",
       "country": "SG",
-      "address": "182 Cecil Street, Frasers Tower"
+      "address": "57 East Coast Road"
+    },
+    "registrationVenue": {
+      "name": "Thoughtworks Singapore",
+      "address": "182 Cecil Street, Frasers Tower",
+      "source": "konfhub"
     },
     "group": {"name": "Singapore dbt Meetup"},
     "topics": [{"name": "data"}]
