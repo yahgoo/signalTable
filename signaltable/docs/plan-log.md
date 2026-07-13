@@ -163,4 +163,8 @@ hermes gateway service install --replace
 
 | Date | Phase | Action | Status | Notes |
 |------|-------|--------|--------|-------|
+| 2026-07-10 | Luma | Schema hardening + live verification | **closed** | `inspect_luma_schema()`, fallbacks, `--self-test`; VPS batch `20260709-schema-verify`: 0 foreign warnings, 46/46 description warnings (Actor `description: null`); doc gap for flat `eventId`/`startAt` shape — see `docs/sessions/2026-07-10-luma-schema-hardening-session-end.md` |
+| 2026-07-08 | Version A | **Working session** — live Luma e2e | **active** | 3 approved Luma cards sent via Telegram; quality batch not sent; relevance tuning pending — see `docs/sessions/2026-07-08-version-a-luma-handoff.md` |
+| 2026-07-08 | Version A | Luma URL debug (synthetic fixtures) | **closed** | 404 slugs were synthetic fixture data, not production corruption; `synthetic_fixture` flag + Luma URL fallback documented |
+| 2026-07-08 | Version A | Deployment parity (local ↔ VPS) | **complete** | Synced `version_a.py`, `event_url_check.py`, `meetup_normalize.py`, `meetup-konfhub-gateway.sample.json`; venue + `URL:` + `--debug-urls` verified on VPS |
 | 2026-07-03 | Setup | Initial deployment | pending | |

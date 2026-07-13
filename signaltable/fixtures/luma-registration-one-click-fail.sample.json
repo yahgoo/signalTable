@@ -1,0 +1,18 @@
+{
+  "smoke_id": "luma-aic-si-7-8",
+  "event_url": "https://luma.com/aic-si-7-8",
+  "event_title": "AI Governance for SMEs: Practical Solutions (without the Enterprise headache) w/ The AI Collective",
+  "registration_platform": "luma",
+  "started_at": "2026-07-08T10:00:00+08:00",
+  "ended_at": "2026-07-08T10:00:48+08:00",
+  "browser_actions": [
+    {"name": "browser_click", "detail": "Register", "at": "2026-07-08T10:00:40+08:00"}
+  ],
+  "form_submitted": false,
+  "on_page_confirmed": false,
+  "waitlist": false,
+  "wallet_required": false,
+  "outcome": "",
+  "reason": "signaltable -z exited after one browser_click (KonfHub-style early exit)",
+  "email_used": "signaltable-reg@lobstermail.ai"
+}

@@ -1,7 +1,7 @@
 # SignalTable: Email Parser Skill
 
 ## Purpose
-Poll the LobsterMail inbox for KonfHub confirmation emails, notify the owner, and hand off to calendar-updater.
+Poll the LobsterMail inbox for KonfHub or Luma confirmation emails, notify the owner, and hand off to calendar-updater.
 
 **LobsterMail is the source of truth.** Never invent confirmation JSON. Never use placeholder IDs from examples.
 
@@ -24,6 +24,20 @@ python3 ~/.hermes/profiles/signaltable/scripts/lobstermail_poll.py \
   --interval 30 \
   --output /tmp/konfhub-parsed-email.json
 ```
+
+## Production command (watch + notify — use after Luma registration)
+
+```bash
+python3 ~/.hermes/profiles/signaltable/scripts/lobstermail_poll.py \
+  --watch \
+  --luma \
+  --event-title "AI Governance for SMEs: Practical Solutions (without the Enterprise headache) w/ The AI Collective" \
+  --source-url "https://luma.com/aic-si-7-8" \
+  --interval 30 \
+  --output /tmp/luma-aic-si-7-8-confirmed.json
+```
+
+See `docs/luma-registration-smoke-runbook.md` for full Luma smoke steps and session contract.
 
 Behavior:
 1. **Fetch first** — LobsterMail REST API every `--interval` seconds (default 30).
@@ -59,7 +73,7 @@ Outcomes:
 {
   "event_title": "...",
   "confirmation_status": "confirmed",
-  "confirmation_source": "konfhub_email",
+  "confirmation_source": "konfhub_email | luma_email",
   "raw_email_id": "eml_...",
   "message_from": "...",
   "message_subject": "...",

@@ -1,0 +1,78 @@
+[
+  {
+    "eventId": "315295343",
+    "eventName": "Singapore dbt Meetup (in-person) - Jul 2026",
+    "eventDescription": "Talks on analytics engineering and data quality. Free event; lunch provided.",
+    "eventUrl": "https://www.meetup.com/singapore-dbt-meetup/events/315295343/",
+    "date": "2026-07-09T18:30:00+08:00",
+    "endDateTime": "2026-07-09T21:00:00+08:00",
+    "eventType": "PHYSICAL",
+    "isOnline": false,
+    "isPaidEvent": false,
+    "venue": {
+      "name": "Thoughtworks Singapore",
+      "city": "Singapore",
+      "country": "SG",
+      "address": "182 Cecil Street"
+    },
+    "group": {"name": "Singapore dbt Meetup"},
+    "topics": [{"name": "data"}]
+  },
+  {
+    "eventId": "315295344",
+    "eventName": "Singapore AI Builders — Evening Talks",
+    "eventDescription": "Light refreshments and snacks at registration. Talks on LLM eval and agents.",
+    "eventUrl": "https://www.meetup.com/sg-ai-builders/events/315295344/",
+    "date": "2026-07-12T19:00:00+08:00",
+    "endDateTime": "2026-07-12T21:00:00+08:00",
+    "eventType": "PHYSICAL",
+    "isOnline": false,
+    "isPaidEvent": false,
+    "venue": {
+      "name": "Founders Bay",
+      "city": "Singapore",
+      "country": "SG",
+      "address": "71 Ayer Rajah Crescent"
+    },
+    "group": {"name": "Singapore AI Builders"},
+    "topics": [{"name": "ai"}]
+  },
+  {
+    "eventId": "315295345",
+    "eventName": "Cloud Cost Meetup — BYO dinner",
+    "eventDescription": "Talk on GPU inference costs. No food provided; venue is near Food Republic but please eat beforehand.",
+    "eventUrl": "https://www.meetup.com/cloud-cost-sg/events/315295345/",
+    "date": "2026-07-15T19:00:00+08:00",
+    "endDateTime": "2026-07-15T20:30:00+08:00",
+    "eventType": "PHYSICAL",
+    "isOnline": false,
+    "isPaidEvent": false,
+    "venue": {
+      "name": "Food Republic Tower",
+      "city": "Singapore",
+      "country": "SG",
+      "address": "1 Raffles Place"
+    },
+    "group": {"name": "Cloud ML Singapore"},
+    "topics": [{"name": "compute"}]
+  },
+  {
+    "eventId": "314638221",
+    "eventName": "SHELLGym — Windows Forensics basics",
+    "eventDescription": "Hands-on cybersecurity workshop. RSVP on Meetup.",
+    "eventUrl": "https://www.meetup.com/div0_sg/events/314638221/",
+    "date": "2026-07-18T14:00:00+08:00",
+    "endDateTime": "2026-07-18T18:00:00+08:00",
+    "eventType": "PHYSICAL",
+    "isOnline": false,
+    "isPaidEvent": false,
+    "venue": {
+      "name": "Division Zero",
+      "city": "Singapore",
+      "country": "SG",
+      "address": "Singapore"
+    },
+    "group": {"name": "Division Zero (Div0)"},
+    "topics": [{"name": "cybersecurity"}]
+  }
+]
