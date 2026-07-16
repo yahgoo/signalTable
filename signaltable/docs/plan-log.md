@@ -315,3 +315,17 @@ User supplied a **legacy `app_key`** token for the public v1 JSON API. Tested au
 If/when we retry:
 - Use a **different IP** than the VPS production IP (`43.156.46.66`). Options: (a) a residential proxy, (b) a fresh VPS/droplet, (c) a longer cooldown window (hours, not minutes — CloudFront datacenter IP penalties can be sticky).
 - Run a **single clean test**, not a burst — the WAF can escalate penalties on repeat hits from a flagged IP.
+
+### Final Decision (2026-07-16, 15:35 SGT)
+
+**Option (c) confirmed:** Eventbrite cutover is **deferred indefinitely**. The self-hosted `eventbrite_scrape_fetch.py` is **fully validated** (self-test/score-parity/parse on real pages) but **shelved** pending either:
+- (a) IP reputation recovery on a different egress path (not the production VPS IP), or
+- (b) a non-listing-page discovery mechanism (sitemap+geofilter, or Eventbrite API access under creds we control).
+
+**Meetup + Luma cutovers are the completed deliverables** for the 2026-07-20 deadline. Eventbrite deferral is a **documented, deliberate scope decision**, not a failure.
+
+### Eventbrite Risk Status (must be addressed post-deadline)
+
+- **2026-07-20 account-wide Apify expiry WILL kill the Eventbrite actor fallback** unless Apify is renewed/extended. This is an **unresolved risk** that must be revisited after the deadline.
+- **Mitigation path:** After 2026-07-20, either (a) renew Apify subscription for Eventbrite continuity, or (b) rebuild Eventbrite discovery without time pressure using a residential-proxy or cloud-initiated egress IP to avoid WAF penalties.
+- **No further Eventbrite requests from VPS IP `43.156.46.66`** — this is protected production infrastructure for the live Meetup+Luma sources.
