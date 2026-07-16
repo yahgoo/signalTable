@@ -194,3 +194,11 @@ hermes gateway service install --replace
 **Both discovery sources are now live-default self-hosted. Neither Apify actor is retired — separate approval required after each new path runs cleanly through ≥1 full real scheduled cycle (no cron exists yet for these flows).**
 
 **Buffer to 2026-07-20 Apify account-wide expiry: 4 days.** Both cutovers landed with margin; no further cutover work blocks the deadline. Eventbrite remains on Apify (third priority, not yet cut over).
+
+### pending_shortlist.json post-cutover state (2026-07-16, decision)
+
+- **No cleanup performed.** `pending_shortlist.json` left as-is after cutover validation sends.
+- It currently holds the **5 real Luma events** from the Luma cutover validation send (top event `url:https://lu.ma/urfk9ocj`, "Islands in the Net Opening Party").
+- The previously-awaited event **has been answered** (`y` at 12:18, feedback row in `event_feedback.jsonl` with `capture_mode:live`, `queue_index:1`). `sent_index == replied_index` → queue is in a **fully resolved, self-consistent state**; no stale `awaiting_reply_for` risk.
+- **Restoring the older pre-Luma-send backup was explicitly rejected**: it would revert the queue to before the real "Islands in the Net" reply was captured, creating a mismatch against `event_feedback.jsonl` and risking that event being re-queued/re-sent on the next discovery cycle — worse than the current state.
+- **Conclusion: no further action needed on the queue.** Both cutovers complete and committed (`8e3574b`). Both Apify actors remain present as rollback, not retired.
