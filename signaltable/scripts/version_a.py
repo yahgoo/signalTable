@@ -184,6 +184,7 @@ def load_sources(
     luma_paths: list[str],
     meetup_specs: list[str],
     eventbrite_paths: list[str],
+    meetup_input_paths: list[str] | None = None,
     luma_query: str = "data,algorithm,compute",
 ) -> list[dict[str, Any]]:
     queries = [q.strip().lower() for q in luma_query.split(",") if q.strip()]
@@ -196,6 +197,12 @@ def load_sources(
         query, path = spec.split(":", 1)
         for item in _load_json_list(path):
             rows.append(normalize_meetup(item, source_query=query.strip().lower()))
+    # Self-hosted Meetup source: meetup_jsonld_fetch.py emits Apify-shaped items
+    # (with `_source_query` metadata), so they normalize through the same path.
+    for path in meetup_input_paths or []:
+        for item in _load_json_list(path):
+            q = str(item.get("source_query") or item.get("_source_query") or "").split(",")[0].strip().lower()
+            rows.append(normalize_meetup(item, source_query=q))
     for path in eventbrite_paths:
         for item in _load_json_list(path):
             rows.append(normalize_eventbrite(item, source_query=DEFAULT_SOURCE_QUERY))
@@ -207,6 +214,7 @@ def discover_shortlist(
     luma_paths: list[str],
     meetup_specs: list[str],
     eventbrite_paths: list[str],
+    meetup_input_paths: list[str] | None = None,
     min_score: int = 4,
     top: int = 5,
     feedback_path: Path | None = None,
@@ -215,6 +223,7 @@ def discover_shortlist(
         luma_paths=luma_paths,
         meetup_specs=meetup_specs,
         eventbrite_paths=eventbrite_paths,
+        meetup_input_paths=meetup_input_paths or [],
     )
     filtered, counts = filter_pipeline(raw)
     feedback = load_feedback(feedback_path)
@@ -234,11 +243,95 @@ def discover_shortlist(
     }
 
 
+def _default_meetup_jsonld_paths() -> list[str]:
+    """Self-hosted Meetup source is the DEFAULT live path (cutover 2026-07-16).
+
+    When neither the Apify `--meetup` spec nor an explicit `--meetup-input`
+    file is supplied, run meetup_jsonld_fetch.py live and feed its stdout
+    (Apify-shaped JSON list) as the Meetup source. The Apify `--meetup` flag
+    remains available as an explicit rollback path and is never auto-invoked.
+    """
+    import tempfile
+
+    script = Path(__file__).resolve().parent / "meetup_jsonld_fetch.py"
+    if not script.exists():
+        print("[warn] meetup_jsonld_fetch.py not found; skipping default Meetup source", file=sys.stderr)
+        return []
+    with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as tf:
+        out_path = tf.name
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), "--output", "json", "--debug-meetup"],
+            stdout=open(out_path, "w"),
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=300,
+        )
+        if proc.returncode != 0:
+            print(f"[warn] meetup_jsonld_fetch.py failed (rc={proc.returncode}); "
+                  f"stderr tail: {proc.stderr[-300:]}", file=sys.stderr)
+            return []
+        return [out_path]
+    except Exception as exc:  # noqa: BLE001 - keep discovery resilient
+        print(f"[warn] meetup_jsonld_fetch.py error: {exc}", file=sys.stderr)
+        return []
+
+
+def _default_luma_paths() -> list[str]:
+    """Self-hosted Luma source is the DEFAULT live path (cutover 2026-07-16).
+
+    When no explicit `--luma-input` file is supplied, run luma_scrape_fetch.py
+    live and feed its stdout (Apify-shaped JSON list) as the Luma source.
+    Passing `--luma-input <apify-dataset.json>` remains an explicit rollback
+    path and is never auto-invoked.
+    """
+    import tempfile
+
+    script = Path(__file__).resolve().parent / "luma_scrape_fetch.py"
+    if not script.exists():
+        print("[warn] luma_scrape_fetch.py not found; skipping default Luma source", file=sys.stderr)
+        return []
+    with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as tf:
+        out_path = tf.name
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), "--output", "json"],
+            stdout=open(out_path, "w"),
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=300,
+        )
+        if proc.returncode != 0:
+            print(f"[warn] luma_scrape_fetch.py failed (rc={proc.returncode}); "
+                  f"stderr tail: {proc.stderr[-300:]}", file=sys.stderr)
+            return []
+        return [out_path]
+    except Exception as exc:  # noqa: BLE001 - keep discovery resilient
+        print(f"[warn] luma_scrape_fetch.py error: {exc}", file=sys.stderr)
+        return []
+
+
 def cmd_discover(args: argparse.Namespace) -> int:
+    meetup_specs = args.meetup or []
+    meetup_input_paths = getattr(args, "meetup_input", None) or []
+    # Cutover default: if no Meetup source was explicitly supplied, use the
+    # self-hosted meetup_jsonld_fetch.py live fetch.
+    if not meetup_specs and not meetup_input_paths:
+        print("[discover] using DEFAULT self-hosted Meetup source (meetup_jsonld_fetch.py)",
+              file=sys.stderr)
+        meetup_input_paths = _default_meetup_jsonld_paths()
+    luma_paths = args.luma_input or []
+    # Cutover default: if no Luma source was explicitly supplied, use the
+    # self-hosted luma_scrape_fetch.py live fetch.
+    if not luma_paths:
+        print("[discover] using DEFAULT self-hosted Luma source (luma_scrape_fetch.py)",
+              file=sys.stderr)
+        luma_paths = _default_luma_paths()
     result = discover_shortlist(
-        luma_paths=args.luma_input or [],
-        meetup_specs=args.meetup or [],
+        luma_paths=luma_paths,
+        meetup_specs=meetup_specs,
         eventbrite_paths=(args.eventbrite_input or []) + args.eventbrite or [],
+        meetup_input_paths=meetup_input_paths,
         min_score=args.min_score,
         top=args.top,
         feedback_path=Path(args.feedback) if args.feedback else None,
@@ -490,7 +583,13 @@ def main() -> int:
 
     discover = sub.add_parser("discover", help="Discover, score, and print shortlist")
     discover.add_argument("--luma-input", action="append", default=[])
-    discover.add_argument("--meetup", action="append", default=[], help="query:path")
+    discover.add_argument("--meetup", action="append", default=[], help="query:path (Apify Meetup actor)")
+    discover.add_argument(
+        "--meetup-input",
+        action="append",
+        default=[],
+        help="path to meetup_jsonld_fetch.py output (Apify-shaped list); self-hosted Meetup source",
+    )
     discover.add_argument("--eventbrite-input", action="append", default=[])
     discover.add_argument("--eventbrite", action="append", default=[])
     discover.add_argument("--min-score", type=int, default=4)
