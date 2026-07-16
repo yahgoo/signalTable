@@ -265,3 +265,24 @@ Egress restored; ran the script's OWN live urllib fetch from the VPS. **Found a 
 3. Per-event fetch + shim + drift guard + score-parity are ALL proven working (VPS self-test PASS; per-event page 200 + offers intact) — so if a viable listing/discovery source is found, the rest of Phase 2 is ready.
 
 **Status: Phase 2 BLOCKED at Step 3 (listing discovery WAF-captcha).** Awaiting user decision on discovery-mechanism path. Buffer to 2026-07-20 Apify expiry: ~4 days — Eventbrite self-host cutover now at risk unless an alternative discovery path is found quickly; Meetup+Luma cutovers unaffected (already live).
+
+### Eventbrite Phase 2 — discovery-endpoint diagnostic round (2026-07-16, ~14:13 SGT)
+
+ONE read-only diagnostic round on the VPS (no code changes). Per-event fetch path already proven (HTTP 200 + AggregateOffer). Tested alternative DISCOVERY endpoints:
+
+**1. XML sitemap — PARTIAL/WEAK.** `https://www.eventbrite.com/sitemap_xml/event_pages00.xml.gz` → **HTTP 200**, `server: AmazonS3`, `content-type: binary/octet-stream`, 1.2 MB gzip (magic `1f8b`). Parsed: **50,000 `<loc>` event URLs**, but **0 are `eventbrite.sg`** — all `eventbrite.com` (global, US-centric sample: "MC Magic Baby Bash", "DMV Carnival"...). The `/sitemap/` index 302-redirects to an HTML page (not directly useful), but the S3-hosted `.xml.gz` files are open. **Problem: the global sitemap is NOT Singapore-filterable at source** — no category/geo segmentation in the URL; isolating SG events requires fetching+geofiltering per event (50k fetches = not viable). So the sitemap is a firehose, not a SG discovery source, unless combined with another SG signal.
+
+**2. Platform API — NO CREDS.** No `EVENTBRITE_*` token in `~/.hermes/profiles/signaltable/.env` or shell env. Would require an API key / OAuth app (eventbrite.com/platform). Not available; unauthenticated Platform API calls return 401. Not attempted (would be futile without creds).
+
+**3. `?q=<kw>` search + RSS — DEAD (WAF).** `https://www.eventbrite.sg/d/singapore--singapore/?q=data` → **HTTP 405 + `x-amzn-waf-action: captcha`** (CloudFront). `/d/.../events/rss/` → **405 + captcha**. Same WAF tier as listing pages. Both unusable.
+
+**Conclusion of diagnostic:** Of the alternatives, **only the global XML sitemap is WAF-open**, and it is **not SG-filterable at source** (global firehose, 0 SG URLs in the sampled shard). Search/RSS are WAF-captcha'd. Platform API needs creds we don't have. So **no clean self-hosted SG discovery path exists today** without either (a) per-event geofiltering over the global sitemap (expensive, ~50k fetches), or (b) Eventbrite API credentials (not present), or (c) accepting the WAF block.
+
+**This is a STOP point per user instruction.** Did NOT proceed to `--eventbrite-input` wiring / discover cycle / E2E. No changes to eventbrite_normalize.py / discovery_common.py / version_a.py / registration_gateway.py / Meetup/Luma scripts. Eventbrite remains on Apify.
+
+**Recommended options for user (from instruction):**
+- **(a)** Build discovery on the sitemap + per-event geofilter — viable but heavy (50k-scale fetch to find ~SG subset); needs a pragmatic cap/sampling strategy.
+- **(b)** Keep Eventbrite on Apify past 2026-07-20 (Apify's proxy rotation likely bypasses this WAF tier); Meetup+Luma stay self-hosted.
+- **(c)** Scope self-host cutover to Meetup+Luma only; leave Eventbrite on Apify indefinitely.
+
+**Buffer:** ~4 days to 2026-07-20. Eventbrite self-host cutover at risk; Meetup+Luma unaffected (live).
