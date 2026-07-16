@@ -248,3 +248,20 @@ User flagged: confirm `eventbrite_scrape_fetch.py`'s OWN urllib fetch works agai
 - **#4 self-test + dry-run score-parity RE-RUN:** `pass: true` — `known_free_resolves_true=true`, `known_paid_not_fooled=true`, `schema_drift_guard.guard_ok=true`, `score_parity.parity_ok=true` (old Apify-free 6 == new shim-resolved-free 6). No regression from the `*Event` matcher / root-offers / city-country additions.
 
 **Conclusion:** The script's fetch logic cannot be exercised from this sandbox due to the blanket egress 403 (affects all hosts, not Eventbrite-specific, not header-related). **Per the user's own instruction, this gap is DEFERRED to VPS-level testing** — it becomes the FIRST task of Phase 2 (live `urllib` fetch on the VPS, which has real network and where Meetup/Luma urllib scripts already work). No script changes were made for this (none were warranted — there is no header bug to fix). Guardrails intact: no VPS deploy, no normalize/version_a/discovery_common changes, no new deps.
+
+### Eventbrite Phase 2 — live fetch BLOCKED by Eventbrite WAF (2026-07-16, ~14:07 SGT)
+
+Egress restored; ran the script's OWN live urllib fetch from the VPS. **Found a genuine, new, Eventbrite-specific blocker (not the sandbox proxy):**
+
+- **ALL Eventbrite LISTING pages now return HTTP 405** with `server: CloudFront` and response header **`x-amzn-waf-action: captcha`** — Eventbrite's AWS WAF is challenging listing-page requests with a **CAPTCHA / bot wall**. Verified universal across every variant tested from the VPS: `science-and-tech--events/` (405), `science-and-tech--events` no-slash (405), `free--events/` (405, this was the category that WORKED via curl in P1 on 07-16 ~13:3x), `events/` root (405). Same Chrome UA + Accept-Language as P1.
+- This is **NEW since P1** (P1 curl got HTTP 200 + `ListItem` JSON-LD on these same URLs hours earlier the same day). Eventbrite tightened listing-page protection (CloudFront WAF captcha) sometime between the P1 curl test and the Phase 2 live fetch.
+- **CRITICAL DISTINCTION: per-event pages STILL WORK.** `eventbrite.sg/e/<slug>-tickets-<id>` (incl. the BNI paid-trap id 1992471056566) returns **HTTP 200** with `AggregateOffer` JSON-LD intact. So the **shim/enrich/pricing path is fine** — only the *listing/discovery* step is WAF-captcha'd.
+
+**Implication:** The current listing-URL discovery mechanism is dead (WAF-captcha). The script cannot discover event URLs without first hitting a captcha'd listing page. This is an infrastructure/anti-scrape change on Eventbrite's side, NOT a script header bug (cannot be fixed by UA/header tweaks — CloudFront WAF captcha is IP/behavior-based).
+
+**Stopped per user instruction #3 (real Eventbrite-specific error → stop & report, no integration).** NOT proceeded to `--eventbrite-input` wiring / discover cycle / E2E. Open questions for the user before any Phase 2 continuation:
+1. Is ANY Eventbrite discovery endpoint still WAF-open? (Need to test: `?q=<kw>` search URL, structured sitemap, RSS, or a different path/domain.) ONE diagnostic round on the VPS recommended.
+2. If ALL discovery is WAF-captcha'd, options: (a) find an alternative discovery source; (b) keep Eventbrite on Apify past 2026-07-20 (Apify likely uses residential proxies/sessions that bypass the WAF) while Meetup+Luma stay self-hosted; (c) accept Eventbrite can't be cheaply self-hosted and scope the cutover to Meetup+Luma only.
+3. Per-event fetch + shim + drift guard + score-parity are ALL proven working (VPS self-test PASS; per-event page 200 + offers intact) — so if a viable listing/discovery source is found, the rest of Phase 2 is ready.
+
+**Status: Phase 2 BLOCKED at Step 3 (listing discovery WAF-captcha).** Awaiting user decision on discovery-mechanism path. Buffer to 2026-07-20 Apify expiry: ~4 days — Eventbrite self-host cutover now at risk unless an alternative discovery path is found quickly; Meetup+Luma cutovers unaffected (already live).
