@@ -1,0 +1,39 @@
+2026-07-07T06:37:48.440Z ACTOR: Pulling container image of build YMwiozDFsmPjeZ8zE from registry.
+2026-07-07T06:37:48.442Z ACTOR: Creating container.
+2026-07-07T06:37:48.480Z ACTOR: Starting container.
+2026-07-07T06:37:50.786Z INFO  System info {"apifyVersion":"3.6.0","apifyClientVersion":"2.22.1","crawleeVersion":"3.16.0","osType":"Linux","nodeVersion":"v20.20.0"}
+2026-07-07T06:37:51.606Z INFO  CheerioCrawler: Starting the crawler.
+2026-07-07T06:37:51.983Z INFO  CheerioCrawler: current url https://www.eventbrite.sg/d/singapore--singapore/free--science-and-tech--events/
+2026-07-07T06:37:52.027Z INFO  CheerioCrawler: next url https://www.eventbrite.sg/d/singapore--singapore/free--science-and-tech--events/?page=2
+2026-07-07T06:37:52.030Z WARN  CheerioCrawler: Could not parse listing JSON-LD or no items found. Skipping page.
+2026-07-07T06:37:53.132Z INFO  CheerioCrawler: current url https://www.eventbrite.sg/d/singapore--singapore/free--science-and-tech--events/?page=2
+2026-07-07T06:37:53.134Z WARN  CheerioCrawler: Could not parse listing JSON-LD or no items found. Skipping page.
+2026-07-07T06:37:57.614Z INFO  CheerioCrawler: current url https://www.eventbrite.sg/d/singapore--singapore/business-opportunities/
+2026-07-07T06:37:57.635Z INFO  CheerioCrawler: next url https://www.eventbrite.sg/d/singapore--singapore/business-opportunities/?page=2
+2026-07-07T06:37:57.638Z INFO  CheerioCrawler: getting events 20
+2026-07-07T06:37:58.344Z INFO  CheerioCrawler: current url https://www.eventbrite.sg/d/singapore--singapore/business-opportunities/?page=2
+2026-07-07T06:37:58.346Z WARN  CheerioCrawler: Could not parse listing JSON-LD or no items found. Skipping page.
+2026-07-07T06:37:58.535Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/jumpa-kami-muslim-business-business-owner-networking-tickets-1992405438300
+2026-07-07T06:37:58.570Z WARN  Ignored attempt to charge for an event - the Actor does not use the pay-per-event pricing
+2026-07-07T06:37:58.639Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.com/e/bni-izaq-business-opportunity-day-tickets-1992108105971
+2026-07-07T06:37:59.375Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/the-business-leaders-circle-tickets-1992426509324
+2026-07-07T06:37:59.876Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.com/e/marketing-ai-talk-and-business-networking-free-online-tickets-1992414332904
+2026-07-07T06:38:00.177Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/bni-mastermind-business-opportunity-day-tickets-1992471056566
+2026-07-07T06:38:00.875Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/bni-alliance-business-opportunity-day-bod-tickets-1991053641038
+2026-07-07T06:38:01.379Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/build-relationship-grow-business-business-opportunity-day-networking-tickets-1991808669348
+2026-07-07T06:38:01.880Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/business-opportunity-day-for-business-owners-in-person-tickets-1978766889032
+2026-07-07T06:38:02.079Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/bni-ambitious-business-opportunity-day-2026-tickets-1990848814396
+2026-07-07T06:38:02.280Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.com/e/business-networking-with-bni-infinity-tickets-1979032529570
+2026-07-07T06:38:02.878Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/business-opportunity-meeting-tickets-1989456092728
+2026-07-07T06:38:03.277Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/find-your-ideal-collaborator-for-businesses-only-tickets-1678262752069
+2026-07-07T06:38:03.781Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/bni-amazing-exclusive-business-owners-networking-tickets-1868820746159
+2026-07-07T06:38:04.378Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.com/e/aseanchina-opportunities-where-are-the-real-deals-tickets-1992980448170
+2026-07-07T06:38:04.676Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.com/e/singapore-australia-business-networking-startup-meet-free-online-tickets-1992079597702
+2026-07-07T06:38:07.575Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/professional-business-networking-session-with-bni-ambitious-singapore-tickets-1992333548275
+2026-07-07T06:38:09.278Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.com/e/prompt-to-profit-learn-generative-ai-for-business-and-innovation-tickets-1987735441213
+2026-07-07T06:38:10.075Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.com/e/singapore-dubai-business-networking-startup-meet-free-online-tickets-1992185683006
+2026-07-07T06:38:10.878Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.sg/e/ai-x-tiktok-tickets-1990876248452
+2026-07-07T06:38:11.884Z INFO  CheerioCrawler: scraping event at https://www.eventbrite.com/e/hrtech-ai-talk-and-business-networking-free-online-tickets-1992445523195
+2026-07-07T06:38:12.061Z INFO  CheerioCrawler: All requests from the queue have been processed, the crawler will shut down.
+2026-07-07T06:38:12.359Z INFO  CheerioCrawler: Final request statistics: {"requestsFinished":24,"requestsFailed":0,"retryHistogram":[24],"requestAvgFailedDurationMillis":null,"requestAvgFinishedDurationMillis":3054,"requestsFinishedPerMinute":69,"requestsFailedPerMinute":0,"requestTotalDurationMillis":73297,"requestsTotal":24,"crawlerRuntimeMillis":20983}
+2026-07-07T06:38:12.361Z INFO  CheerioCrawler: Finished! Total 24 requests: 24 succeeded, 0 failed. {"terminal":true}

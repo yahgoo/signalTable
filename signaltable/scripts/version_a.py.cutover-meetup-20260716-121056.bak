@@ -1,0 +1,613 @@
+#!/usr/bin/env python3
+"""SignalTable Version A — discover, score, shortlist, y/n/m feedback.
+
+Scope (v1 only):
+  - Discover Luma + Meetup + Eventbrite
+  - Score and rank
+  - Send shortlist to owner
+  - Collect y / n / m preference feedback
+  - Improve future scoring from feedback
+
+Out of scope: registration, LobsterMail, calendar write.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from discovery_common import filter_pipeline, parse_datetime
+from discovery_pipeline import _load_json_list, _load_luma
+from eventbrite_normalize import DEFAULT_SOURCE_QUERY, normalize_canonical as normalize_eventbrite
+from feedback_store import (
+    DEFAULT_FEEDBACK,
+    DEFAULT_PENDING,
+    append_feedback,
+    load_feedback,
+    load_pending,
+    normalize_reply,
+    pop_current_event,
+    queue_shortlist,
+    save_pending,
+    summarize_preferences,
+)
+from event_url_check import audit_event_urls, canonical_event_url, format_url_audit_lines, self_test_checks
+from meetup_normalize import normalize_canonical as normalize_meetup
+from version_a_scoring import score_and_rank
+
+SGT = ZoneInfo("Asia/Singapore")
+HERMES_BIN = Path.home() / ".local/bin/hermes"
+FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "version-a-live"
+
+
+def _hermes_cmd() -> list[str]:
+    if HERMES_BIN.is_file():
+        return [str(HERMES_BIN)]
+    return ["hermes"]
+
+
+def _first_str(*values: Any) -> str:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _format_sgt(value: str) -> str:
+    dt = parse_datetime(value)
+    if dt is None:
+        return value or "TBD"
+    return dt.astimezone(SGT).strftime("%a %d %b %Y, %-I:%M %p SGT")
+
+
+def _price_label(event: dict[str, Any]) -> str:
+    if event.get("is_free") is True:
+        return "Free"
+    if event.get("is_free") is False:
+        return _first_str(event.get("price_text"), "Paid")
+    pt = _first_str(event.get("price_text"))
+    return pt or "Unknown"
+
+
+def _location_label(event: dict[str, Any]) -> str:
+    venue = _first_str(event.get("meetup_venue_name"), event.get("venue_name"))
+    address = _first_str(event.get("meetup_venue_address"), event.get("full_address"))
+    city = _first_str(event.get("city"), "Singapore")
+    if venue and address:
+        return f"{venue}, {address}"
+    if venue:
+        return f"{venue}, {city}"
+    return address or city or "Singapore"
+
+
+def _registration_venue_line(event: dict[str, Any]) -> str | None:
+    reg_name = _first_str(event.get("registration_venue_name"))
+    reg_address = _first_str(event.get("registration_venue_address"))
+    if not reg_name and not reg_address:
+        return None
+
+    primary_name = _first_str(event.get("meetup_venue_name"), event.get("venue_name"))
+    primary_address = _first_str(event.get("meetup_venue_address"), event.get("full_address"))
+    if reg_name == primary_name and reg_address == primary_address:
+        return None
+
+    if reg_name and reg_address:
+        return f"Registration venue: {reg_name}, {reg_address}"
+    if reg_name:
+        return f"Registration venue: {reg_name}"
+    return f"Registration venue: {reg_address}"
+
+
+def _agenda_summary(event: dict[str, Any], limit: int = 140) -> str:
+    text = _first_str(event.get("description"), event.get("summary"))
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text or "No agenda text available."
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _why_fits(event: dict[str, Any]) -> str:
+    why = event.get("why_selected") or []
+    if not why:
+        return "Passed Singapore in-person tech filters."
+    parts = [str(w) for w in why[:4]]
+    base = event.get("base_score")
+    adj = event.get("feedback_adjustment")
+    if base is not None and adj:
+        parts.append(f"score {base}{adj:+d} -> {event.get('relevance_score')}")
+    elif base is not None:
+        parts.append(f"score {base}")
+    return "; ".join(parts)
+
+
+def _food_line(event: dict[str, Any]) -> str:
+    line = event.get("food_card_line")
+    if isinstance(line, str) and line.strip():
+        return line.strip()
+    from food_detection import apply_food_status
+
+    return apply_food_status(dict(event)).get("food_card_line") or "Food: Not mentioned"
+
+
+def format_event_card(event: dict[str, Any], *, index: int | None = None) -> str:
+    prefix = f"#{index} " if index is not None else ""
+    lines = [
+        f"{prefix}{event.get('title', 'Untitled')}",
+        f"Platform: {event.get('source') or event.get('platform') or 'unknown'}",
+        f"When: {_format_sgt(str(event.get('start_time') or event.get('start_at') or ''))}",
+        f"Where: {_location_label(event)}",
+    ]
+    reg_venue = _registration_venue_line(event)
+    if reg_venue:
+        lines.append(reg_venue)
+    lines.extend(
+        [
+            f"Price: {_price_label(event)}",
+            _food_line(event),
+            f"Agenda: {_agenda_summary(event)}",
+            f"Why it fits: {_why_fits(event)}",
+            f"URL: {canonical_event_url(event) or 'unknown'}",
+            "Reply: y / n / m",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def debug_url_review(events: list[dict[str, Any]], *, probe_network: bool = False) -> dict[str, Any]:
+    audits = audit_event_urls(events, probe_network=probe_network)
+    flagged = [row for row in audits if row.get("review")]
+    return {
+        "audits": audits,
+        "flagged_count": len(flagged),
+        "lines": format_url_audit_lines(audits),
+    }
+
+
+def format_shortlist_message(events: list[dict[str, Any]]) -> str:
+    header = f"SignalTable v1 shortlist ({len(events)} events)\n"
+    blocks = [format_event_card(ev, index=i + 1) for i, ev in enumerate(events)]
+    footer = "\n---\nReply y = yes, n = no, m = maybe (one event at a time)."
+    return header + "\n\n".join(blocks) + footer
+
+
+def load_sources(
+    *,
+    luma_paths: list[str],
+    meetup_specs: list[str],
+    eventbrite_paths: list[str],
+    meetup_input_paths: list[str] | None = None,
+    luma_query: str = "data,algorithm,compute",
+) -> list[dict[str, Any]]:
+    queries = [q.strip().lower() for q in luma_query.split(",") if q.strip()]
+    rows: list[dict[str, Any]] = []
+    for path in luma_paths:
+        rows.extend(_load_luma(path, queries))
+    for spec in meetup_specs:
+        if ":" not in spec:
+            raise SystemExit(f"invalid --meetup (expected query:path): {spec}")
+        query, path = spec.split(":", 1)
+        for item in _load_json_list(path):
+            rows.append(normalize_meetup(item, source_query=query.strip().lower()))
+    # Self-hosted Meetup source: meetup_jsonld_fetch.py emits Apify-shaped items
+    # (with `_source_query` metadata), so they normalize through the same path.
+    for path in meetup_input_paths or []:
+        for item in _load_json_list(path):
+            q = str(item.get("source_query") or item.get("_source_query") or "").split(",")[0].strip().lower()
+            rows.append(normalize_meetup(item, source_query=q))
+    for path in eventbrite_paths:
+        for item in _load_json_list(path):
+            rows.append(normalize_eventbrite(item, source_query=DEFAULT_SOURCE_QUERY))
+    return rows
+
+
+def discover_shortlist(
+    *,
+    luma_paths: list[str],
+    meetup_specs: list[str],
+    eventbrite_paths: list[str],
+    meetup_input_paths: list[str] | None = None,
+    min_score: int = 4,
+    top: int = 5,
+    feedback_path: Path | None = None,
+) -> dict[str, Any]:
+    raw = load_sources(
+        luma_paths=luma_paths,
+        meetup_specs=meetup_specs,
+        eventbrite_paths=eventbrite_paths,
+        meetup_input_paths=meetup_input_paths or [],
+    )
+    filtered, counts = filter_pipeline(raw)
+    feedback = load_feedback(feedback_path)
+    scored = score_and_rank(filtered, min_score=min_score, feedback_records=feedback)
+    shortlist = scored[:top]
+    return {
+        "version": "A",
+        "generated_at": datetime.now(SGT).isoformat(),
+        "counts": counts,
+        "scored_total": len(scored),
+        "shortlist_count": len(shortlist),
+        "min_score": min_score,
+        "top": top,
+        "feedback_records": len(feedback),
+        "shortlist": shortlist,
+        "message_preview": format_shortlist_message(shortlist) if shortlist else "No events matched.",
+    }
+
+
+def _default_meetup_jsonld_paths() -> list[str]:
+    """Self-hosted Meetup source is the DEFAULT live path (cutover 2026-07-16).
+
+    When neither the Apify `--meetup` spec nor an explicit `--meetup-input`
+    file is supplied, run meetup_jsonld_fetch.py live and feed its stdout
+    (Apify-shaped JSON list) as the Meetup source. The Apify `--meetup` flag
+    remains available as an explicit rollback path and is never auto-invoked.
+    """
+    import tempfile
+
+    script = Path(__file__).resolve().parent / "meetup_jsonld_fetch.py"
+    if not script.exists():
+        print("[warn] meetup_jsonld_fetch.py not found; skipping default Meetup source", file=sys.stderr)
+        return []
+    with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as tf:
+        out_path = tf.name
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), "--output", "json", "--debug-meetup"],
+            stdout=open(out_path, "w"),
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=300,
+        )
+        if proc.returncode != 0:
+            print(f"[warn] meetup_jsonld_fetch.py failed (rc={proc.returncode}); "
+                  f"stderr tail: {proc.stderr[-300:]}", file=sys.stderr)
+            return []
+        return [out_path]
+    except Exception as exc:  # noqa: BLE001 - keep discovery resilient
+        print(f"[warn] meetup_jsonld_fetch.py error: {exc}", file=sys.stderr)
+        return []
+
+
+def cmd_discover(args: argparse.Namespace) -> int:
+    meetup_specs = args.meetup or []
+    meetup_input_paths = getattr(args, "meetup_input", None) or []
+    # Cutover default: if no Meetup source was explicitly supplied, use the
+    # self-hosted meetup_jsonld_fetch.py live fetch.
+    if not meetup_specs and not meetup_input_paths:
+        print("[discover] using DEFAULT self-hosted Meetup source (meetup_jsonld_fetch.py)",
+              file=sys.stderr)
+        meetup_input_paths = _default_meetup_jsonld_paths()
+    result = discover_shortlist(
+        luma_paths=args.luma_input or [],
+        meetup_specs=meetup_specs,
+        eventbrite_paths=(args.eventbrite_input or []) + args.eventbrite or [],
+        meetup_input_paths=meetup_input_paths,
+        min_score=args.min_score,
+        top=args.top,
+        feedback_path=Path(args.feedback) if args.feedback else None,
+    )
+    if args.output:
+        Path(args.output).write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if args.debug_urls:
+        url_review = debug_url_review(result["shortlist"], probe_network=args.probe_urls)
+        result["url_review"] = url_review
+        for line in url_review["lines"]:
+            print(line, file=sys.stderr)
+
+    if args.message:
+        print(result["message_preview"])
+    elif args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(result["message_preview"])
+        print()
+        print(
+            f"({result['shortlist_count']} shown / {result['scored_total']} scored / "
+            f"{result['counts'].get('raw', 0)} raw)"
+        )
+        if args.debug_urls and result.get("url_review", {}).get("flagged_count"):
+            print()
+            print(f"URL review: {result['url_review']['flagged_count']} event(s) flagged (see stderr).")
+    return 0 if result["shortlist_count"] else 1
+
+
+def cmd_queue(args: argparse.Namespace) -> int:
+    data = json.loads(Path(args.input).read_text(encoding="utf-8"))
+    events = data.get("shortlist") if isinstance(data, dict) else data
+    if not isinstance(events, list) or not events:
+        print(json.dumps({"error": "no shortlist events in input"}), file=sys.stderr)
+        return 2
+    pending = queue_shortlist(events, Path(args.pending))
+    print(json.dumps({"queued": len(events), "pending_path": args.pending}, indent=2))
+    return 0
+
+
+def cmd_send(args: argparse.Namespace) -> int:
+    pending_path = Path(args.pending)
+    data = load_pending(pending_path)
+    events = data.get("pending") or []
+    idx = int(data.get("sent_index") or 0)
+    if idx >= len(events):
+        print("No more events to send.", file=sys.stderr)
+        return 1
+    event = events[idx]
+    message = format_event_card(event)
+    if args.dry_run:
+        print(message)
+        return 0
+    cmd = _hermes_cmd() + ["send", "--quiet", "--to", args.to, message]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(result.stderr or result.stdout, file=sys.stderr)
+        return result.returncode
+    data["sent_index"] = idx + 1
+    data["last_sent_at"] = datetime.now(SGT).isoformat()
+    data["awaiting_reply_for"] = event.get("event_key") or event.get("title")
+    data["awaiting_reply_queue_index"] = idx + 1
+    data["awaiting_reply_title"] = event.get("title") or ""
+    save_pending(data, pending_path)
+    print(f"Sent event {idx + 1}/{len(events)}: {event.get('title')}")
+    return 0
+
+
+def cmd_handle_reply(args: argparse.Namespace) -> int:
+    from reply_capture import CAPTURE_MANUAL
+    from shortlist_reply import process_shortlist_reply
+
+    result = process_shortlist_reply(
+        args.text,
+        feedback_path=Path(args.feedback),
+        pending_path=Path(args.pending),
+        capture_mode=CAPTURE_MANUAL,
+        send_telegram=bool(args.notify),
+    )
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    if result.get("reason") in {"notify_not_allowed", "test_mode_forbids_telegram"}:
+        return 2
+    return 0 if result.get("matched") else 0
+
+
+def cmd_feedback_summary(args: argparse.Namespace) -> int:
+    records = load_feedback(Path(args.feedback))
+    summary = summarize_preferences(records)
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    return 0
+
+
+def run_self_test() -> int:
+    fixture_dir = FIXTURES
+    luma = str(fixture_dir / "luma.json")
+    meetup = str(Path(__file__).resolve().parent.parent / "fixtures" / "meetup-konfhub-gateway.sample.json")
+    eventbrite = str(
+        Path(__file__).resolve().parent.parent / "fixtures" / "eventbrite-science-tech-singapore-free.sample.json"
+    )
+
+    empty_feedback: list[dict[str, Any]] = []
+    result = discover_shortlist(
+        luma_paths=[luma],
+        meetup_specs=[f"data:{meetup}"],
+        eventbrite_paths=[eventbrite],
+        min_score=4,
+        top=5,
+        feedback_path=None,
+    )
+    result["feedback_records"] = 0
+
+    sample_event = result["shortlist"][0] if result["shortlist"] else {}
+    sample_card = format_event_card(sample_event, index=1)
+    card_ok = all(
+        token in sample_card
+        for token in ("Platform:", "When:", "Where:", "Price:", "Food:", "Agenda:", "Why it fits:", "URL:", "Reply: y / n / m")
+    )
+    card_has_no_link_line = "Link:" not in sample_card
+
+    from food_detection import detect_food_status
+
+    food_checks = {
+        "food_provided": detect_food_status({"title": "AI Lunch", "description": "Includes lunch."})["food_status"]
+        == "provided",
+        "food_snacks": detect_food_status({"description": "Snacks and drinks provided."})["food_status"]
+        == "drinks_snacks",
+        "food_not_provided": detect_food_status({"description": "No food provided."})["food_status"] == "not_provided",
+        "food_not_mentioned": detect_food_status({"title": "GPU night", "description": "Talk on inference."})[
+            "food_status"
+        ]
+        == "not_mentioned",
+        "food_not_from_venue": detect_food_status(
+            {"description": "Talk.", "venue_name": "Food Republic"}
+        )["food_status"]
+        == "not_mentioned",
+    }
+
+    fake_y = {
+        "label": "y",
+        "event_key": sample_event.get("event_key", "test"),
+        "title": sample_event.get("title", "Test Event"),
+        "platform": sample_event.get("source", "meetup"),
+        "organizer": _first_str(sample_event.get("organizer_name"), sample_event.get("group_name"), "Test Org"),
+        "keywords": ["data", "ai"],
+        "base_score": 7,
+        "final_score": 7,
+    }
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        fb_path = Path(tmp) / "feedback.jsonl"
+        append_feedback(fake_y, fb_path)
+        boosted = discover_shortlist(
+            luma_paths=[luma],
+            meetup_specs=[f"data:{meetup}"],
+            eventbrite_paths=[eventbrite],
+            min_score=4,
+            top=5,
+            feedback_path=fb_path,
+        )
+        has_boost = any((e.get("feedback_adjustment") or 0) != 0 for e in boosted["shortlist"])
+
+    from meetup_normalize import normalize_canonical as normalize_meetup_for_test
+
+    dbt_event = normalize_meetup_for_test(
+        {
+            "eventId": "315295343",
+            "eventName": "Singapore dbt Meetup (in-person) - Jul 2026",
+            "eventDescription": "Register on KonfHub: https://konfhub.com/e/sg-dbt-meetup-jul-2026",
+            "eventUrl": "https://www.meetup.com/singapore-dbt-meetup/events/315295343/",
+            "date": "2026-07-09T18:30:00+08:00",
+            "eventType": "PHYSICAL",
+            "isOnline": False,
+            "isPaidEvent": False,
+            "venue": {"name": "Monk's Brew Club", "city": "Singapore", "address": "57 East Coast Road"},
+            "registrationVenue": {
+                "name": "Thoughtworks Singapore",
+                "address": "182 Cecil Street, Frasers Tower",
+                "source": "konfhub",
+            },
+            "group": {"name": "Singapore dbt Meetup"},
+        },
+        source_query="data",
+    )
+    dbt_card = format_event_card(dbt_event, index=1)
+    dbt_meetup_url = "https://www.meetup.com/singapore-dbt-meetup/events/315295343/"
+
+    checks = {
+        "shortlist_non_empty": result["shortlist_count"] >= 2,
+        "card_fields_present": card_ok,
+        "card_uses_url_not_link": card_has_no_link_line and f"URL: {dbt_meetup_url}" in dbt_card,
+        "dbt_card_meetup_url": dbt_meetup_url in dbt_card,
+        "dbt_card_primary_venue": "Monk's Brew Club, 57 East Coast Road" in dbt_card,
+        "dbt_card_registration_venue": "Registration venue: Thoughtworks Singapore" in dbt_card,
+        **{f"url_{k}": v for k, v in self_test_checks().items()},
+        "multi_platform": len({e.get("source") for e in result["shortlist"]}) >= 2,
+        "feedback_reply_y": normalize_reply("y") == "y",
+        "feedback_reply_n": normalize_reply("n") == "n",
+        "feedback_reply_m": normalize_reply("m") == "m",
+        "feedback_boost_applied": has_boost,
+        **food_checks,
+    }
+    payload = {"discover": {k: v for k, v in result.items() if k != "shortlist"}, "checks": checks, "pass": all(checks.values())}
+    if result["shortlist"]:
+        payload["sample_card"] = sample_card
+    payload["dbt_meetup_card"] = dbt_card
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0 if payload["pass"] else 1
+
+
+def cmd_live_test(args: argparse.Namespace) -> int:
+    """Controlled live test using fixture-backed real-shaped events."""
+    fixture_dir = FIXTURES
+    out_path = args.output or str(Path("signaltable/logs/version-a-live-test.json"))
+    result = discover_shortlist(
+        luma_paths=[str(fixture_dir / "luma.json")],
+        meetup_specs=[f"data:{Path(__file__).resolve().parent.parent / 'fixtures/meetup-konfhub-gateway.sample.json'}"],
+        eventbrite_paths=[
+            str(Path(__file__).resolve().parent.parent / "fixtures/eventbrite-science-tech-singapore-free.sample.json")
+        ],
+        min_score=args.min_score,
+        top=args.top,
+        feedback_path=Path(args.feedback) if args.feedback else None,
+    )
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(out_path).write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    if args.queue:
+        queue_shortlist(result["shortlist"], Path(args.pending))
+
+    print(result["message_preview"])
+    print()
+    print(f"Saved: {out_path}")
+    if args.queue:
+        print(f"Queued {result['shortlist_count']} events -> {args.pending}")
+    if args.send:
+        for _ in result["shortlist"]:
+            rc = cmd_send(argparse.Namespace(pending=args.pending, to="telegram", dry_run=args.dry_run))
+            if rc != 0:
+                return rc
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="SignalTable Version A — discover, shortlist, feedback")
+    parser.add_argument("--feedback", default=str(DEFAULT_FEEDBACK))
+    parser.add_argument("--pending", default=str(DEFAULT_PENDING))
+    sub = parser.add_subparsers(dest="cmd")
+
+    discover = sub.add_parser("discover", help="Discover, score, and print shortlist")
+    discover.add_argument("--luma-input", action="append", default=[])
+    discover.add_argument("--meetup", action="append", default=[], help="query:path (Apify Meetup actor)")
+    discover.add_argument(
+        "--meetup-input",
+        action="append",
+        default=[],
+        help="path to meetup_jsonld_fetch.py output (Apify-shaped list); self-hosted Meetup source",
+    )
+    discover.add_argument("--eventbrite-input", action="append", default=[])
+    discover.add_argument("--eventbrite", action="append", default=[])
+    discover.add_argument("--min-score", type=int, default=4)
+    discover.add_argument("--top", type=int, default=5)
+    discover.add_argument("--json", action="store_true")
+    discover.add_argument("--message", action="store_true", help="Print Telegram-ready message only")
+    discover.add_argument("--output", "-o")
+    discover.add_argument(
+        "--debug-urls",
+        action="store_true",
+        help="Flag missing/duplicate/unreachable URLs for manual review (does not drop events)",
+    )
+    discover.add_argument(
+        "--probe-urls",
+        action="store_true",
+        help="With --debug-urls, perform lightweight HTTP checks (slower; needs network)",
+    )
+    discover.set_defaults(func=cmd_discover)
+
+    queue = sub.add_parser("queue", help="Queue shortlist JSON for sequential Telegram send")
+    queue.add_argument("--input", "-i", required=True)
+    queue.set_defaults(func=cmd_queue)
+
+    send = sub.add_parser("send", help="Send next queued event card via Telegram")
+    send.add_argument("--to", default="telegram")
+    send.add_argument("--dry-run", action="store_true")
+    send.set_defaults(func=cmd_send)
+
+    reply = sub.add_parser("handle-reply", help="MANUAL CLI fallback: record y/n/m (not live Telegram)")
+    reply.add_argument("text")
+    reply.add_argument(
+        "--notify",
+        action="store_true",
+        help="Send MANUAL CLI ack to Telegram (labeled [MANUAL CLI], not a live reply)",
+    )
+    reply.set_defaults(func=cmd_handle_reply)
+
+    summary = sub.add_parser("feedback-summary", help="Show preference summary from feedback store")
+    summary.set_defaults(func=cmd_feedback_summary)
+
+    live = sub.add_parser("live-test", help="Run controlled Version A test on fixture-backed events")
+    live.add_argument("--top", type=int, default=3)
+    live.add_argument("--min-score", type=int, default=4)
+    live.add_argument("--output", "-o")
+    live.add_argument("--queue", action="store_true")
+    live.add_argument("--send", action="store_true")
+    live.add_argument("--dry-run", action="store_true")
+    live.set_defaults(func=cmd_live_test)
+
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+
+    if args.self_test:
+        return run_self_test()
+    if not args.cmd:
+        parser.print_help()
+        return 2
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

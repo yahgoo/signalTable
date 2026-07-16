@@ -1,0 +1,93 @@
+2026-07-06T11:00:07.913Z ACTOR: Pulling container image of build HB3jMaLbU4dHOi43A from registry.
+2026-07-06T11:00:39.971Z ACTOR: Creating container.
+2026-07-06T11:00:46.494Z ACTOR: Starting container.
+2026-07-06T11:00:47.270Z Running on architecture: x86_64
+2026-07-06T11:00:47.270Z Will run command: xvfb-run -a -s "-ac -screen 0 1920x1080x24+32 -nolisten tcp" /bin/sh -c yarn start:prod --silent
+2026-07-06T11:00:47.561Z yarn run v1.22.22
+2026-07-06T11:00:47.598Z $ node dist/main.js --silent
+2026-07-06T11:00:48.638Z INFO  System info {"apifyVersion":"3.4.0","apifyClientVersion":"2.12.3","crawleeVersion":"3.13.2","osType":"Linux","nodeVersion":"v20.20.1"}
+2026-07-06T11:00:49.992Z INFO  PuppeteerCrawler: Starting the crawler.
+2026-07-06T11:00:52.519Z INFO  PuppeteerCrawler: Searching for algorithm (page 1)
+2026-07-06T11:00:52.524Z INFO  PuppeteerCrawler: Searching for data (page 1)
+2026-07-06T11:00:53.488Z INFO  PuppeteerCrawler: Searching for compute (page 1)
+2026-07-06T11:00:54.383Z INFO  PuppeteerCrawler: No event found for https://lu.ma/singapore
+2026-07-06T11:00:54.981Z INFO  PuppeteerCrawler: No event found for https://lu.ma/lorong-ai
+2026-07-06T11:00:55.663Z INFO  PuppeteerCrawler: No event found for https://lu.ma/genai-collective
+2026-07-06T11:00:56.764Z INFO  PuppeteerCrawler: No event found for https://lu.ma/toptierimpact
+2026-07-06T11:00:56.966Z INFO  PuppeteerCrawler: No event found for https://lu.ma/chainlink
+2026-07-06T11:00:57.850Z INFO  PuppeteerCrawler: No event found for https://lu.ma/osldotcom
+2026-07-06T11:00:57.971Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/l2daysingapore
+2026-07-06T11:00:59.419Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/multichaindayethdenver
+2026-07-06T11:01:00.101Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/cbjjfc7h
+2026-07-06T11:01:00.392Z INFO  PuppeteerCrawler: No event found for https://lu.ma/filecoin
+2026-07-06T11:01:01.382Z INFO  PuppeteerCrawler: Searching for data (page 2)
+2026-07-06T11:01:01.463Z INFO  PuppeteerCrawler: No event found for https://lu.ma/thesaturdaybookclub
+2026-07-06T11:01:02.049Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/67ipz8dh
+2026-07-06T11:01:03.222Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/w4sv9xfj
+2026-07-06T11:01:03.258Z INFO  PuppeteerCrawler: No event found for https://lu.ma/sg-ai
+2026-07-06T11:01:03.844Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/0vcwqb7w
+2026-07-06T11:01:04.554Z INFO  PuppeteerCrawler: Searching for algorithm (page 2)
+2026-07-06T11:01:04.642Z INFO  PuppeteerCrawler: No more results
+2026-07-06T11:01:05.316Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/clawconsingapore
+2026-07-06T11:01:05.360Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/jvzyo8j0
+2026-07-06T11:01:06.408Z INFO  PuppeteerCrawler: No event found for https://lu.ma/icpevents
+2026-07-06T11:01:06.646Z INFO  PuppeteerCrawler: No event found for https://lu.ma/codexcommunitysg
+2026-07-06T11:01:07.322Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/iympt6m7
+2026-07-06T11:01:07.439Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/sjyikcuh
+2026-07-06T11:01:07.750Z INFO  PuppeteerCrawler: No event found for https://lu.ma/tech-safari-events
+2026-07-06T11:01:08.765Z INFO  PuppeteerCrawler: Searching for compute (page 2)
+2026-07-06T11:01:09.346Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/e54qu91o
+2026-07-06T11:01:09.448Z INFO  PuppeteerCrawler: No event found for https://lu.ma/cloudflare
+2026-07-06T11:01:10.513Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/pfvxm6p0
+2026-07-06T11:01:10.655Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/SuiFest
+2026-07-06T11:01:10.801Z INFO  PuppeteerCrawler: No event found for https://lu.ma/Pyth
+2026-07-06T11:01:11.653Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/qpeqnpln
+2026-07-06T11:01:12.719Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/auv235iu
+2026-07-06T11:01:13.856Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/0qg50tbt
+2026-07-06T11:01:15.172Z INFO  PuppeteerCrawler: Searching for data (page 3)
+2026-07-06T11:01:15.244Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/s4kgkoc2
+2026-07-06T11:01:15.539Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/iu0jdbk4
+2026-07-06T11:01:16.071Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/b3q7q31a
+2026-07-06T11:01:17.102Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/rw5w6ei6
+2026-07-06T11:01:17.144Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/9bofl8qq
+2026-07-06T11:01:17.159Z INFO  PuppeteerCrawler: Searching for compute (page 3)
+2026-07-06T11:01:18.818Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/srphh212
+2026-07-06T11:01:19.646Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/superteamhike
+2026-07-06T11:01:21.264Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/q12gxsir
+2026-07-06T11:01:22.342Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/hszom0hw
+2026-07-06T11:01:22.471Z INFO  PuppeteerCrawler: Searching for data (page 4)
+2026-07-06T11:01:22.754Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/TheBestEvent-DevCon24
+2026-07-06T11:01:23.556Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/hvybo8zz
+2026-07-06T11:01:24.343Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/stripe-toronto
+2026-07-06T11:01:24.646Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/qhyuosa9
+2026-07-06T11:01:25.380Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/82wo5dke
+2026-07-06T11:01:26.672Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/hack_brussels
+2026-07-06T11:01:27.645Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/ofr.dubai
+2026-07-06T11:01:28.577Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/0jmjqcs7
+2026-07-06T11:01:29.260Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/FOIS_ARTBASEL
+2026-07-06T11:01:29.542Z INFO  PuppeteerCrawler: No event found for https://lu.ma/remarkablewomen
+2026-07-06T11:01:29.872Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/web3tobiandbrenttoken2049SG
+2026-07-06T11:01:35.466Z INFO  PuppeteerCrawler: Searching for compute (page 4)
+2026-07-06T11:01:35.467Z INFO  PuppeteerCrawler: Searching for data (page 5)
+2026-07-06T11:01:36.936Z INFO  PuppeteerCrawler: No event found for https://lu.ma/Polygonlabs
+2026-07-06T11:01:37.258Z INFO  PuppeteerCrawler: Searching for data (page 6)
+2026-07-06T11:01:37.449Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/6qsp1tsi
+2026-07-06T11:01:37.957Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/TBE.Token2049.SG
+2026-07-06T11:01:38.196Z INFO  PuppeteerCrawler: No event found for https://lu.ma/caladan
+2026-07-06T11:01:38.541Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/wzlg671c
+2026-07-06T11:01:39.249Z INFO  PuppeteerCrawler: Searching for compute (page 5)
+2026-07-06T11:01:39.952Z INFO  PuppeteerCrawler: Searching for data (page 7)
+2026-07-06T11:01:40.853Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/FOIS_TORONTO
+2026-07-06T11:01:40.944Z INFO  PuppeteerCrawler: Searching for compute (page 6)
+2026-07-06T11:01:41.250Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/l2conbangkok
+2026-07-06T11:01:41.961Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/asukpmrk
+2026-07-06T11:01:42.107Z INFO  PuppeteerCrawler: Searching for data (page 8)
+2026-07-06T11:01:42.108Z INFO  PuppeteerCrawler: Max results have been reached
+2026-07-06T11:01:42.937Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/dpc6w933
+2026-07-06T11:01:44.030Z INFO  PuppeteerCrawler: processing event -> https://lu.ma/tfv5huo4
+2026-07-06T11:01:44.939Z INFO  PuppeteerCrawler: Searching for compute (page 7)
+2026-07-06T11:01:44.940Z INFO  PuppeteerCrawler: Max results have been reached
+2026-07-06T11:01:45.078Z INFO  PuppeteerCrawler: All requests from the queue have been processed, the crawler will shut down.
+2026-07-06T11:01:45.271Z INFO  PuppeteerCrawler: Final request statistics: {"requestsFinished":77,"requestsFailed":0,"retryHistogram":[77],"requestAvgFailedDurationMillis":null,"requestAvgFinishedDurationMillis":1601,"requestsFinishedPerMinute":83,"requestsFailedPerMinute":0,"requestTotalDurationMillis":123300,"requestsTotal":77,"crawlerRuntimeMillis":55503}
+2026-07-06T11:01:45.272Z INFO  PuppeteerCrawler: Finished! Total 77 requests: 77 succeeded, 0 failed. {"terminal":true}
+2026-07-06T11:01:45.296Z Done in 57.74s.
