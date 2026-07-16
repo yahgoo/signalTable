@@ -1,0 +1,2 @@
+[discover] city=singapore raw=20
+[price] resolved={'free': 5, 'paid': 15, 'unknown': 0}
