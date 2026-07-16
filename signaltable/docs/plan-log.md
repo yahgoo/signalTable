@@ -233,3 +233,18 @@ hermes gateway service install --replace
 **7. Live end-to-end validation (read-only, no deploy):** Ran the parse+shim pipeline against 5 REAL curled Eventbrite pages (1 paid .sg, 4 free incl. .com domains). All 5 shimmed cleanly with **0 drift warnings**: BNImastermind→paid SGD 58.73; InsideOut/Eventech/AIoTConf/APExpo→free; all with venue/city(SG)/in-person/organizer/eventId. Listing dedup verified: 40 unique from 2 listings. (Note: the script's own live `urllib` fetch couldn't be run from this sandbox because the egress proxy returns `403 Forbidden` to Python urllib — `curl` reaches Eventbrite fine; on the VPS with real network, urllib works normally, same as Meetup/Luma scripts. No code change needed for that.)
 
 **Status: Phase 1 COMPLETE (go for Phase 2 integration, pending user approval).** Next: wire `--eventbrite-input` into `version_a.py discover` (mirror `--luma-input`/`--meetup-input`), run a live discover cycle, 1-event E2E. NOT deployed to VPS yet. Eventbrite remains on Apify until cutover approved.
+
+### Eventbrite P1 — live-fetch gap closure attempt (2026-07-16)
+
+User flagged: confirm `eventbrite_scrape_fetch.py`'s OWN urllib fetch works against live Eventbrite (not just the earlier curl+manual-parse workaround).
+
+**Result: BLOCKED by sandbox egress, NOT by the script.** Diagnosis:
+- The sandbox routes ALL egress through a local proxy (`HTTPS_PROXY=http://127.0.0.1:53501`) which now returns **`403 Forbidden` on EVERY external host** — verified identical failures for `api.github.com`, `www.google.com`, AND `www.eventbrite.sg` via urllib. (Proxy port even rotated 53469→53501 between calls — the proxy is being torn down/rebuilt, a blanket block this session.)
+- **No header discrepancy exists.** curl and urllib hit the SAME proxy 403 at the CONNECT-tunnel stage (response `HTTP/1.1 403 Forbidden` before Eventbrite is ever reached). Adjusting `User-Agent`/`Accept` in the script would be pointless — the request never leaves the sandbox.
+- The script's `DEFAULT_HEADERS` (Chrome UA + `Accept-Language: en-SG`) are already correct/browser-like; they were proven sufficient when the earlier curl runs (pre-block) retrieved valid JSON-LD with the expected `offers`/`Event` structure.
+
+**What WAS verifiable locally (no network) — all PASS:**
+- **#3 price-string robustness:** `offers[].AggregateOffer.lowPrice/highPrice` parsed via `float()` (NOT string-compare). Proven: `"0.0"`→free, `"58.73"`→paid SGD, `"0"`→free, `"129.90"`→paid, `"0.00"`→free. The naive `"0.0" != 0` string bug is impossible by construction.
+- **#4 self-test + dry-run score-parity RE-RUN:** `pass: true` — `known_free_resolves_true=true`, `known_paid_not_fooled=true`, `schema_drift_guard.guard_ok=true`, `score_parity.parity_ok=true` (old Apify-free 6 == new shim-resolved-free 6). No regression from the `*Event` matcher / root-offers / city-country additions.
+
+**Conclusion:** The script's fetch logic cannot be exercised from this sandbox due to the blanket egress 403 (affects all hosts, not Eventbrite-specific, not header-related). **Per the user's own instruction, this gap is DEFERRED to VPS-level testing** — it becomes the FIRST task of Phase 2 (live `urllib` fetch on the VPS, which has real network and where Meetup/Luma urllib scripts already work). No script changes were made for this (none were warranted — there is no header bug to fix). Guardrails intact: no VPS deploy, no normalize/version_a/discovery_common changes, no new deps.
