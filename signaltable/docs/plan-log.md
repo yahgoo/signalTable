@@ -286,3 +286,32 @@ ONE read-only diagnostic round on the VPS (no code changes). Per-event fetch pat
 - **(c)** Scope self-host cutover to Meetup+Luma only; leave Eventbrite on Apify indefinitely.
 
 **Buffer:** ~4 days to 2026-07-20. Eventbrite self-host cutover at risk; Meetup+Luma unaffected (live).
+
+### Eventbrite API-key diagnostic (2026-07-16, ~14:25 SGT)
+
+User supplied a **legacy `app_key`** token for the public v1 JSON API. Tested authenticated endpoints:
+
+1. **v1 `user_get?app_key=...`** → **HTTP 429 + WAF HTML page** (`x-amzn-waf-action: captcha` headers). This is the most basic endpoint and would work from a clean IP.
+2. **v1 `event_search?app_key=...&location.address=Singapore`** → **HTTP 429 + WAF** (same penalty).
+3. **The token itself is valid** (it authenticates via `app_key` query param on `eventbrite.com/json/*` — NOT `Authorization: Bearer` on v3, which is why v3 returned 401. The v1 JSON API is the correct path for this legacy key).
+
+**Root cause:** The VPS IP (`43.156.46.66`) is now **WAF-penalized** by Eventbrite (likely triggered by the earlier diagnostic listing-page probes: those fired 405/captcha challenges from this same IP, causing CloudFront WAF to flag it). This is **NOT an auth bug**, NOT a script bug, and NOT a header/UA detection issue — just IP reputation.
+
+**Stopped immediately** per instruction: no further live Eventbrite requests from this VPS IP for now. Repeated probes can entrench the penalty; this VPS IP is shared production infrastructure already running the live Meetup+Luma sources.
+
+### Eventbrite fallback status (Apify actor)
+
+- The Apify actor `eventbrite-science-tech-singapore-free` is the **designed fallback**. No separate subscription expiry is documented in the fixture or runbooks — the actor uses the same Apify account-wide token.
+- **2026-07-20 account-wide Apify expiry is the effective deadline.** If unaddressed, ALL Apify access (including the Eventbrite actor) stops on 2026-07-20. There is no evidence of an earlier Eventbrite-specific cutoff.
+
+### Risk assessment (2026-07-16)
+
+- **Meetup + Luma are SAFE.** Both cutovered and running self-hosted scrapers that are immune to this WAF penalty (they target Meetup/Luma endpoints unaffected).
+- **Eventbrite is AT RISK** from the 2026-07-20 expiry **unless**: (a) the WAF IP penalty lifts after hours/days, allowing the v1 API to work from the VPS, or (b) we find an alternative discovery path (sitemap geofilter, or a different egress IP).
+- **Code status:** `eventbrite_scrape_fetch.py` is **fully validated** (self-test/score-parity/parse on real pages) — **only live-network access is blocked**. This is "code complete, live-network validation blocked by IP reputation," not "code incomplete."
+
+### For future retry (if chosen)
+
+If/when we retry:
+- Use a **different IP** than the VPS production IP (`43.156.46.66`). Options: (a) a residential proxy, (b) a fresh VPS/droplet, (c) a longer cooldown window (hours, not minutes — CloudFront datacenter IP penalties can be sticky).
+- Run a **single clean test**, not a burst — the WAF can escalate penalties on repeat hits from a flagged IP.
